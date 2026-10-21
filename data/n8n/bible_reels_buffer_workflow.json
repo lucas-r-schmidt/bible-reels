@@ -1,0 +1,105 @@
+{
+  "name": "Bible Reels -> Buffer (Instagram & TikTok)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "bible-reels",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "e001-webhook",
+      "name": "Webhook Bible Reels",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "bible-reels"
+    },
+    {
+      "parameters": {
+        "content": "## 🚀 Bible Reels para Buffer (Instagram & TikTok)\n\n1. Conecte sua conta do **Instagram** e **TikTok** no painel do [Buffer.com](https://buffer.com).\n2. Obtenha seu Token de Acesso em **Buffer ➔ Settings ➔ Channels / API**.\n3. Configure o nó **Publicar no Buffer (HTTP)** com seu token e os IDs dos perfis.\n4. O Bible Reels envia automaticamente a legenda e a `video_url` direta do vídeo.",
+        "height": 260,
+        "width": 480
+      },
+      "id": "sticky-instructions",
+      "name": "Instruções",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.bufferapp.com/1/updates/create.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer SEU_ACCESS_TOKEN_DO_BUFFER_AQUI"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "={{ $json.body.caption || $json.caption }}"
+            },
+            {
+              "name": "media[video]",
+              "value": "={{ $json.body.video_url || $json.video_url }}"
+            },
+            {
+              "name": "profile_ids[]",
+              "value": "ID_DO_SEU_CANAL_INSTAGRAM"
+            },
+            {
+              "name": "profile_ids[]",
+              "value": "ID_DO_SEU_CANAL_TIKTOK"
+            },
+            {
+              "name": "now",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e002-buffer-http",
+      "name": "Publicar no Buffer (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        540,
+        300
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Bible Reels": {
+      "main": [
+        [
+          {
+            "node": "Publicar no Buffer (HTTP)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

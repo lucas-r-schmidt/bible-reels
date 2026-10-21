@@ -1,0 +1,15 @@
+[Unit]
+Description=Bible Reels YouTube Community Engagement Agent
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/bible-reels
+ExecStart=/home/ubuntu/bible-reels/.venv/bin/python -m src.community.agent --daemon --interval 20
+Restart=always
+RestartSec=30
+EnvironmentFile=/home/ubuntu/bible-reels/.env
+
+[Install]
+WantedBy=multi-user.target

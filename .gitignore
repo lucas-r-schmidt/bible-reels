@@ -1,0 +1,43 @@
+# Ambientes e segredos
+.env
+.env*
+!.env.example
+*.key
+*.pem
+
+# Sessões e autenticações OAuth
+data/tiktok_session.json
+config/*token*.json
+config/*secret*.json
+config/client_secret.json
+config/youtube_token.json
+
+# Banco de dados e logs
+*.db
+*.db.bak
+*.sqlite
+*.sqlite3
+data/db/
+data/audio/
+!data/audio/README.md
+data/audio_copyrighted_backup/
+data/backgrounds/cache/
+data/saints/images/
+logs/
+*.log
+
+# Mídias geradas
+output/
+*.tar.gz
+check_*.py
+public_site/
+
+# Python & IDE
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

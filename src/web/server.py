@@ -1,0 +1,781 @@
+"""
+src/web/server.py
+-----------------
+Servidor web nativo (sem dependências extras) para a interface visual do Bible Reels.
+Serve a UI moderna, arquivos estáticos, mídias geradas e endpoints de API.
+"""
+import json
+import mimetypes
+import os
+import sqlite3
+import sys
+import threading
+from datetime import date, datetime, timedelta, timezone
+from http.server import HTTPServer, SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qs, urlparse
+
+from config.settings import (
+    DB_PATH,
+    DEFAULT_PUBLISHER,
+    OUTPUT_IMAGES,
+    OUTPUT_VIDEOS,
+    POSTPROXY_API_KEY,
+    POSTPROXY_PROFILE_IDS,
+    ROOT_DIR,
+    WEBHOOK_URL,
+)
+from src.collector.bible_api import collect_verses
+from src.collector.local_quotes import collect_quotes
+from src.collector.saints import collect_saint_of_day, get_saint_for_date, get_saint_image
+from src.media_gen.image_builder import generate_post_image
+from src.media_gen.video_builder import generate_video_from_image
+from src.processor.ai_formatter import format_verse, format_saint_post
+from src.processor.db_manager import DBManager
+from src.publisher.buffer_api import publish_via_buffer
+from src.publisher.postproxy import PostproxyPublisher, publish_via_postproxy
+from src.publisher.webhook import publish_via_webhook
+from src.publisher.instagram_direct import publish_via_instagram_direct
+from src.publisher.tiktok_direct import publish_via_tiktok_direct, is_tiktok_authenticated
+from src.utils.logger import get_logger
+
+log = get_logger("web_server")
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+def _is_safe_subpath(base_dir: Path, target: Path) -> bool:
+    """Garante que o caminho resolvido permanece estritamente dentro do diretório base."""
+    try:
+        return target.resolve().is_relative_to(base_dir.resolve())
+    except Exception:
+        return False
+
+
+class BibleReelsHandler(SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=str(STATIC_DIR), **kwargs)
+
+    def log_message(self, format: str, *args: Any) -> None:
+        # Silencia logs HTTP excessivos no console
+        pass
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(204)
+        origin = self.headers.get("Origin", "")
+        if origin and (origin.startswith("http://localhost") or origin.startswith("http://127.0.0.1")):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.end_headers()
+
+    def do_GET(self) -> None:
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path.startswith("/api/"):
+            try:
+                self._handle_api_get(path, parse_qs(parsed.query))
+            except Exception as exc:
+                log.exception(f"Erro inesperado em GET {path}: {exc}")
+                self._send_json({"error": f"Erro interno: {exc}"}, status=500)
+            return
+
+        # Rota de mídias geradas
+        if path.startswith("/media/"):
+            self._serve_media(path[7:])
+            return
+
+        # Rota padrão para SPA
+        if path in ("", "/"):
+            self._serve_file(STATIC_DIR / "index.html", "text/html; charset=utf-8")
+            return
+
+        clean_path = path.lstrip("/")
+        target_file = (STATIC_DIR / clean_path).resolve()
+        if not _is_safe_subpath(STATIC_DIR, target_file):
+            self.send_error(403, "Acesso proibido")
+            return
+
+        if target_file.is_file():
+            mime_type, _ = mimetypes.guess_type(str(target_file))
+            self._serve_file(target_file, mime_type or "application/octet-stream")
+        else:
+            self._serve_file(STATIC_DIR / "index.html", "text/html; charset=utf-8")
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path.startswith("/api/"):
+            length = int(self.headers.get("Content-Length", 0))
+            body_bytes = self.rfile.read(length) if length > 0 else b"{}"
+            try:
+                data = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
+            except Exception:
+                data = {}
+            try:
+                self._handle_api_post(path, data)
+            except Exception as exc:
+                log.exception(f"Erro inesperado em {path}: {exc}")
+                self._send_json({"success": False, "error": f"Erro interno no servidor: {exc}"}, status=500)
+            return
+
+        self._send_json({"error": "Endpoint não encontrado"}, status=404)
+
+    def _serve_media(self, rel_path: str) -> None:
+        clean = rel_path.lstrip("/\\")
+        output_dir = (ROOT_DIR / "output").resolve()
+        candidate = (ROOT_DIR / "output" / clean).resolve()
+
+        if not candidate.is_file() or not _is_safe_subpath(output_dir, candidate):
+            # Tenta buscar em images ou videos
+            candidate_img = (OUTPUT_IMAGES / clean).resolve()
+            candidate_vid = (OUTPUT_VIDEOS / clean).resolve()
+            if candidate_img.is_file() and _is_safe_subpath(output_dir, candidate_img):
+                candidate = candidate_img
+            elif candidate_vid.is_file() and _is_safe_subpath(output_dir, candidate_vid):
+                candidate = candidate_vid
+            else:
+                self.send_error(404, "Arquivo de mídia não encontrado")
+                return
+
+        if not _is_safe_subpath(output_dir, candidate):
+            self.send_error(403, "Acesso proibido")
+            return
+
+        mime_type, _ = mimetypes.guess_type(str(candidate))
+        self._serve_file(candidate, mime_type or "application/octet-stream")
+
+    def _serve_file(self, file_path: Path, content_type: str) -> None:
+        try:
+            with open(file_path, "rb") as f:
+                content = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(content)
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+            pass
+        except Exception as exc:
+            try:
+                self.send_error(500, f"Erro ao servir arquivo: {exc}")
+            except Exception:
+                pass
+
+    def _send_json(self, data: Any, status: int = 200) -> None:
+        try:
+            payload = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("X-Content-Type-Options", "nosniff")
+
+            origin = self.headers.get("Origin", "")
+            if origin and (origin.startswith("http://localhost") or origin.startswith("http://127.0.0.1")):
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+                self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+            self.end_headers()
+            self.wfile.write(payload)
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+            pass
+
+    # ── API Handlers ──────────────────────────────────────────────────────
+
+    def _handle_api_get(self, path: str, params: dict[str, list[str]]) -> None:
+        db = DBManager(DB_PATH)
+        try:
+            if path == "/api/stats":
+                verses_count = db.conn.execute("SELECT COUNT(*) FROM verses").fetchone()[0]
+                posts_count = db.conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0]
+                pending_count = db.conn.execute("SELECT COUNT(*) FROM queue WHERE status = 'pending'").fetchone()[0]
+                sent_count = db.conn.execute("SELECT COUNT(*) FROM queue WHERE status = 'sent'").fetchone()[0]
+                failed_count = db.conn.execute("SELECT COUNT(*) FROM queue WHERE status = 'failed'").fetchone()[0]
+
+                from dotenv import load_dotenv
+                load_dotenv(ROOT_DIR / ".env", override=True)
+                active_pub = os.getenv("DEFAULT_PUBLISHER", DEFAULT_PUBLISHER)
+                ig_user = os.getenv("INSTAGRAM_USERNAME", "")
+                ig_pass = os.getenv("INSTAGRAM_PASSWORD", "")
+
+                self._send_json({
+                    "verses_count": verses_count,
+                    "posts_count": posts_count,
+                    "queue_pending": pending_count,
+                    "queue_sent": sent_count,
+                    "queue_failed": failed_count,
+                    "default_publisher": active_pub,
+                    "webhook_configured": bool(os.getenv("WEBHOOK_URL")),
+                    "instagram_configured": bool(ig_user and ig_pass),
+                    "tiktok_configured": is_tiktok_authenticated(),
+                    "postproxy_configured": bool(POSTPROXY_API_KEY),
+                    "profile_ids": POSTPROXY_PROFILE_IDS
+                })
+                return
+
+            if path == "/api/posts":
+                limit = int(params.get("limit", ["100"])[0])
+                status_filter = params.get("status", ["all"])[0].lower()
+                type_filter = params.get("type", ["all"])[0].lower()
+
+                query = """
+                    SELECT p.*, v.reference, v.text as original_text, v.source as verse_source
+                    FROM posts p
+                    JOIN verses v ON v.id = p.verse_id
+                """
+                where_clauses = []
+                sql_params = []
+
+                if status_filter in ("unpublished", "nao_publicados", "pending"):
+                    where_clauses.append("p.status != 'published'")
+                elif status_filter in ("published", "publicados"):
+                    where_clauses.append("p.status = 'published'")
+
+                if type_filter in ("scripture", "scriptures", "bible", "versiculo", "versiculos"):
+                    where_clauses.append("v.source != 'saint'")
+                elif type_filter in ("saint", "saints", "santo", "santos"):
+                    where_clauses.append("v.source = 'saint'")
+
+                if where_clauses:
+                    query += " WHERE " + " AND ".join(where_clauses)
+
+                query += " ORDER BY p.id DESC LIMIT ? "
+                sql_params.append(limit)
+
+                rows = db.conn.execute(query, tuple(sql_params)).fetchall()
+
+                posts = []
+                for r in rows:
+                    item = dict(r)
+                    ref_lower = (item.get("reference") or "").lower()
+                    is_saint = item.get("verse_source") == "saint" or any(s in ref_lower for s in ("santo", "santa", "nossa senhora"))
+                    item["content_type"] = "saint" if is_saint else "scripture"
+
+                    # Converte caminhos locais para URLs servidas
+                    img_path = item.get("image_path") or ""
+                    vid_path = item.get("video_path") or ""
+                    item["image_url"] = None
+                    item["video_url"] = None
+                    item["is_carousel"] = False
+                    item["carousel_slides"] = []
+                    item["media_type"] = "image"
+
+                    out_dir = (ROOT_DIR / "output").resolve()
+                    if img_path and Path(img_path).is_file():
+                        p_img = Path(img_path).resolve()
+                        try:
+                            rel = p_img.relative_to(out_dir).as_posix()
+                            item["image_url"] = f"/media/{rel}"
+                        except Exception:
+                            item["image_url"] = f"/media/images/{p_img.name}"
+
+                        is_slide_dir = any(k in p_img.parent.name.lower() for k in ("carousel_", "verse_", "scenes"))
+                        if is_slide_dir:
+                            item["is_carousel"] = True
+                            item["media_type"] = "carousel"
+                            slides = sorted([s for s in p_img.parent.iterdir() if s.is_file() and s.suffix.lower() in ('.png', '.jpg', '.jpeg')])
+                            slide_urls = []
+                            for s in slides:
+                                try:
+                                    slide_urls.append(f"/media/{s.resolve().relative_to(out_dir).as_posix()}")
+                                except Exception:
+                                    slide_urls.append(f"/media/{s.name}")
+                            item["carousel_slides"] = slide_urls
+
+                            # Detecta se existe trilha/áudio mixado para o carrossel
+                            audio_file = p_img.parent / "carousel_audio.mp3"
+                            if audio_file.is_file():
+                                try:
+                                    item["carousel_audio_url"] = f"/media/{audio_file.resolve().relative_to(out_dir).as_posix()}"
+                                except Exception:
+                                    item["carousel_audio_url"] = f"/media/carousels/{p_img.parent.name}/carousel_audio.mp3"
+                            else:
+                                item["carousel_audio_url"] = None
+                        else:
+                            item["carousel_audio_url"] = None
+
+                    if vid_path and Path(vid_path).is_file():
+                        p_vid = Path(vid_path).resolve()
+                        try:
+                            rel_v = p_vid.relative_to(out_dir).as_posix()
+                            item["video_url"] = f"/media/{rel_v}"
+                        except Exception:
+                            item["video_url"] = f"/media/videos/{p_vid.name}"
+                        item["media_type"] = "video"
+                    
+                    try:
+                        item["hashtags"] = json.loads(item["hashtags"]) if item.get("hashtags") else []
+                    except Exception:
+                        item["hashtags"] = []
+                    posts.append(item)
+
+                self._send_json(posts)
+                return
+
+            if path == "/api/queue":
+                limit = int(params.get("limit", ["50"])[0])
+                rows = db.conn.execute("""
+                    SELECT q.*, p.formatted_text, v.reference
+                    FROM queue q
+                    JOIN posts p ON p.id = q.post_id
+                    JOIN verses v ON v.id = p.verse_id
+                    ORDER BY q.id DESC
+                    LIMIT ?
+                """, (limit,)).fetchall()
+                self._send_json([dict(r) for r in rows])
+                return
+
+            if path == "/api/profiles":
+                if not POSTPROXY_API_KEY:
+                    self._send_json({"error": "POSTPROXY_API_KEY não configurada no .env"}, status=400)
+                    return
+                pub = PostproxyPublisher()
+                try:
+                    profiles = pub.listar_perfis()
+                    self._send_json(profiles)
+                except Exception as exc:
+                    self._send_json({"error": str(exc)}, status=500)
+                return
+
+            if path == "/api/logs":
+                log_file = ROOT_DIR / "logs" / "bible_reels.log"
+                lines = []
+                if log_file.is_file():
+                    with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+                        lines = f.readlines()[-60:]
+                self._send_json({"lines": lines})
+                return
+
+            self._send_json({"error": "Endpoint não encontrado"}, status=404)
+        finally:
+            db.close()
+
+    def _handle_api_post(self, path: str, data: dict[str, Any]) -> None:
+        db = DBManager(DB_PATH)
+        try:
+            if path == "/api/actions/collect":
+                source = data.get("source", "both")
+                count = int(data.get("count", 3))
+                if source in ("saint", "santo"):
+                    collect_saint_of_day(db)
+                else:
+                    if source in ("bible", "both"):
+                        collect_verses(db, count=count)
+                    if source in ("quotes", "both"):
+                        collect_quotes(db, count=count)
+                self._send_json({"success": True, "message": f"Coleta realizada com sucesso ({count} itens)."})
+                return
+
+            if path == "/api/actions/saint":
+                pub = data.get("publisher") or DEFAULT_PUBLISHER
+                media_format = data.get("format") or ("video" if data.get("make_video", True) else "image")
+                target_date_raw = data.get("target_date")
+                schedule_time = data.get("schedule_time")
+                auto_publish = bool(data.get("auto_publish", False)) or bool(schedule_time)
+
+                target_date = date.today()
+                if target_date_raw:
+                    try:
+                        target_date = datetime.strptime(str(target_date_raw).strip(), "%Y-%m-%d").date()
+                    except Exception as exc:
+                        log.warning(f"Formato inválido de target_date ({target_date_raw}): {exc}. Usando hoje.")
+
+                saint = collect_saint_of_day(db, target_date=target_date, force=True)
+                if not saint:
+                    self._send_json({"error": "Falha ao coletar dados do Santo do Dia"}, status=500)
+                    return
+
+                verse_id = saint["verse_id"]
+                ref_label = f"{saint['name']} ({saint.get('date_str', '')})"
+                ai_data = format_saint_post(
+                    reference=ref_label,
+                    text=saint.get("quote", ""),
+                    saint_metadata=saint
+                )
+
+                post_id = db.insert_post(
+                    verse_id=verse_id,
+                    formatted_text=ai_data["formatted_text"],
+                    hashtags=ai_data["hashtags"],
+                    visual_prompt=ai_data["visual_prompt"],
+                    caption=ai_data.get("caption", "")
+                )
+
+                vid_path_str = ""
+                carousel_slides_urls = []
+
+                # Regra: Santo do Dia SEMPRE gera Carrossel (Instagram) + Vídeo vertical multi-cena (TikTok/YT)
+                from src.media_gen.carousel_builder import generate_saint_carousel, build_saint_narration_text
+                slides = generate_saint_carousel(
+                    post_id=post_id,
+                    saint_name=saint["name"],
+                    title_hook=saint.get("quote", ""),
+                    story_text=saint.get("history", ""),
+                    prayer_text=saint.get("prayer", "")
+                )
+                img_path = slides[0] if slides else (OUTPUT_IMAGES / f"post_{post_id:04d}.png")
+                for s in slides:
+                    try:
+                        rel_s = s.relative_to(ROOT_DIR / "output").as_posix()
+                        carousel_slides_urls.append(f"/media/{rel_s}")
+                    except Exception:
+                        carousel_slides_urls.append(f"/media/carousels/{s.parent.name}/{s.name}")
+
+                # Gera o vídeo vertical MP4 sequencial a partir das lâminas para TikTok e YouTube Shorts
+                # A narração contempla Capa/Citação + História + Oração
+                saint_narration = build_saint_narration_text(
+                    saint_name=saint["name"],
+                    title_hook=saint.get("quote", ""),
+                    story_text=saint.get("history", ""),
+                    prayer_text=saint.get("prayer", "")
+                )
+                try:
+                    scenes_dir = slides[0].parent / "scenes" if slides else None
+                    v_scenes = [scenes_dir / f"scene_{i+1:02d}.png" for i in range(len(slides))] if (scenes_dir and scenes_dir.is_dir()) else slides
+                    vid = generate_video_from_image(img_path, slides=v_scenes, narration_text=saint_narration)
+                    if vid:
+                        vid_path_str = str(vid)
+                except Exception as e_vid:
+                    log.warning(f"Vídeo de apoio do Santo do Dia para TikTok/YouTube não renderizado: {e_vid}")
+
+                db.update_post_media(post_id, str(img_path), vid_path_str)
+                db.enqueue(post_id, pub)
+
+                # Agendamento ou publicação automática caso solicitado
+                scheduled_ok = False
+                due_at_iso = None
+                if schedule_time:
+                    try:
+                        dt_clean = str(schedule_time).strip()
+                        if len(dt_clean) == 16:
+                            dt_clean += ":00"
+                        dt_parsed = datetime.fromisoformat(dt_clean)
+                        if dt_parsed.tzinfo is None:
+                            tz_br = timezone(timedelta(hours=-3))
+                            dt_parsed = dt_parsed.replace(tzinfo=tz_br)
+                        due_at_iso = dt_parsed.isoformat()
+                    except Exception as exc:
+                        log.warning(f"Erro ao converter schedule_time: {exc}")
+
+                if auto_publish:
+                    cur_p = db.conn.execute("SELECT * FROM posts WHERE id = ?", (post_id,))
+                    post_row = cur_p.fetchone()
+                    if post_row:
+                        p_dict = dict(post_row)
+                        p_dict["reference"] = ref_label
+                        scheduled_ok = publish_via_buffer(p_dict, due_at=due_at_iso)
+                        if scheduled_ok:
+                            db.mark_post_published(post_id)
+                            db.conn.execute("UPDATE queue SET status = 'sent' WHERE post_id = ?", (post_id,))
+                            db.conn.commit()
+
+                format_label = "Carrossel de 5 Lâminas" if media_format == "carousel" else "Vídeo Vertical MP4" if media_format == "video" else "Imagem 9:16"
+                msg = f"Post #{post_id} ({saint['name']}) gerado em formato {format_label} com sucesso!"
+                if scheduled_ok:
+                    msg += f" Agendado no Buffer para {schedule_time}!" if schedule_time else " Adicionado à fila do Buffer!"
+
+                try:
+                    rel_img = Path(img_path).relative_to(ROOT_DIR / "output").as_posix()
+                    img_url = f"/media/{rel_img}"
+                except Exception:
+                    img_url = f"/media/images/{Path(img_path).name}"
+
+                self._send_json({
+                    "success": True,
+                    "post_id": post_id,
+                    "saint_name": saint["name"],
+                    "title": saint.get("title", ""),
+                    "format": media_format,
+                    "scheduled": scheduled_ok,
+                    "due_at": due_at_iso,
+                    "image_url": img_url,
+                    "carousel_slides": carousel_slides_urls,
+                    "video_url": f"/media/videos/{Path(vid_path_str).name}" if vid_path_str else None,
+                    "message": msg
+                })
+                return
+
+            if path == "/api/actions/schedule-post":
+                post_id = int(data.get("post_id", 0))
+                schedule_time = data.get("schedule_time")
+                if not post_id or not schedule_time:
+                    self._send_json({"success": False, "error": "Parâmetros post_id e schedule_time obrigatórios"}, status=400)
+                    return
+
+                cur_p = db.conn.execute("SELECT p.*, v.reference FROM posts p JOIN verses v ON p.verse_id = v.id WHERE p.id = ?", (post_id,))
+                row = cur_p.fetchone()
+                if not row:
+                    self._send_json({"success": False, "error": "Post não encontrado"}, status=404)
+                    return
+
+                p_dict = dict(row)
+                due_at_iso = None
+                try:
+                    dt_clean = str(schedule_time).strip()
+                    if len(dt_clean) == 16:
+                        dt_clean += ":00"
+                    dt_parsed = datetime.fromisoformat(dt_clean)
+                    if dt_parsed.tzinfo is None:
+                        tz_br = timezone(timedelta(hours=-3))
+                        dt_parsed = dt_parsed.replace(tzinfo=tz_br)
+                    due_at_iso = dt_parsed.isoformat()
+                except Exception as exc:
+                    log.warning(f"Erro ao converter schedule_time: {exc}")
+
+                ok = publish_via_buffer(p_dict, due_at=due_at_iso)
+                if ok:
+                    db.mark_post_published(post_id)
+                    db.conn.execute("UPDATE queue SET status = 'sent' WHERE post_id = ?", (post_id,))
+                    db.conn.commit()
+                    self._send_json({"success": True, "message": f"Post #{post_id} agendado no Buffer com sucesso para {schedule_time}!"})
+                else:
+                    self._send_json({"success": False, "error": f"Falha ao agendar post #{post_id} no Buffer. Verifique os logs."}, status=500)
+                return
+
+            if path == "/api/actions/process":
+                limit = int(data.get("limit", 3))
+                pub = data.get("publisher") or DEFAULT_PUBLISHER
+                unused = db.get_unused_verses(limit=limit)
+                processed = 0
+                for item in unused:
+                    if item.get("source") == "saint":
+                        saint_meta = get_saint_for_date()
+                        ai_data = format_saint_post(item["reference"], item["text"], saint_metadata=saint_meta)
+                    else:
+                        try:
+                            ai_data = format_verse(item["reference"], item["text"])
+                        except Exception:
+                            ai_data = None
+                        if not ai_data:
+                            ai_data = {
+                                "formatted_text": f"{item['text']}\n\n— {item['reference']}",
+                                "hashtags": ["fe", "gratidao", "motivacao", "palavradedeus", "reelsbrasil", "tiktokcristao"],
+                                "visual_prompt": "Serene cinematic sunrise with mountains"
+                            }
+                    post_id = db.insert_post(
+                        verse_id=item["id"],
+                        formatted_text=ai_data["formatted_text"],
+                        hashtags=ai_data["hashtags"],
+                        visual_prompt=ai_data["visual_prompt"],
+                        caption=ai_data.get("caption", "")
+                    )
+                    db.enqueue(post_id, pub)
+                    processed += 1
+                self._send_json({"success": True, "processed": processed, "publisher": pub})
+                return
+
+            if path == "/api/actions/media":
+                limit = int(data.get("limit", 3))
+                make_video = bool(data.get("make_video", True))
+                post_id = data.get("post_id")
+                if post_id:
+                    cur = db.conn.execute("SELECT * FROM posts WHERE id = ?", (int(post_id),))
+                    row = cur.fetchone()
+                    posts = [dict(row)] if row else []
+                else:
+                    posts = db.get_pending_posts(limit=limit, need_video=make_video, need_image=not make_video)
+
+                rendered = 0
+                for post in posts:
+                    cur = db.conn.execute("SELECT reference, source FROM verses WHERE id = ?", (post["verse_id"],))
+                    v_row = cur.fetchone()
+                    ref = v_row["reference"] if v_row else "Reflexão"
+                    source = v_row["source"] if v_row else ""
+
+                    is_saint = source == "saint" or any(k in ref.lower() for k in ("santo", "santa", "são", "sao", "senhora"))
+                    verse_scenes = []
+
+                    if is_saint:
+                        from src.collector.saints import get_saint_for_date
+                        from src.media_gen.carousel_builder import generate_saint_carousel, build_saint_narration_text
+                        import re
+                        target_date = None
+                        date_match = re.search(r"\((\d{1,2})/(\d{1,2})\)", ref)
+                        if date_match:
+                            d_day, d_month = int(date_match.group(1)), int(date_match.group(2))
+                            target_date = date(date.today().year, d_month, d_day)
+                        clean_name = ref.split("(")[0].strip()
+                        saint_meta = get_saint_for_date(target_date) or {}
+                        raw_t = post.get("formatted_text") or ""
+                        title_hook = saint_meta.get("quote", "") or raw_t.split("\n\n—")[0]
+                        story_text = saint_meta.get("history", "") or raw_t
+                        prayer_text = saint_meta.get("prayer", "")
+
+                        slides = generate_saint_carousel(
+                            post_id=post["id"],
+                            saint_name=clean_name,
+                            title_hook=title_hook,
+                            story_text=story_text,
+                            prayer_text=prayer_text
+                        )
+                        img_path = slides[0] if slides else (OUTPUT_IMAGES / f"post_{post['id']:04d}.png")
+                        vid_target = img_path
+                        verse_scenes = slides
+                        n_text = build_saint_narration_text(clean_name, title_hook, story_text, prayer_text)
+                    else:
+                        from src.collector.backgrounds import get_thematic_background
+                        from src.media_gen.image_builder import generate_verse_scenes
+                        from src.media_gen.tts import build_verse_narration_text
+                        verse_scenes = generate_verse_scenes(post["id"], ref, post["formatted_text"], post.get("visual_prompt", ""))
+                        if verse_scenes:
+                            img_path = verse_scenes[0]
+                            vid_target = verse_scenes[0]
+                        else:
+                            bg_img = get_thematic_background(post.get("visual_prompt", ""), reference=ref)
+                            img_path = generate_post_image(
+                                post_id=post["id"],
+                                text=post["formatted_text"],
+                                reference=ref,
+                                badge_text=None,
+                                bg_image_path=bg_img
+                            )
+                            vid_target = img_path
+                        n_text = build_verse_narration_text(post["formatted_text"], reference=ref)
+
+                    vid_str = ""
+                    if make_video:
+                        vid = generate_video_from_image(vid_target, slides=verse_scenes if verse_scenes else None, narration_text=n_text)
+                        if vid:
+                            vid_str = str(vid)
+                    db.update_post_media(post["id"], str(img_path), vid_str)
+                    rendered += 1
+                self._send_json({"success": True, "rendered": rendered, "post_ids": [p["id"] for p in posts]})
+                return
+
+            if path == "/api/actions/dispatch":
+                items = db.get_pending_queue(limit=10)
+                sent = 0
+                for q in items:
+                    cur = db.conn.execute("SELECT * FROM posts WHERE id = ?", (q["post_id"],))
+                    row = cur.fetchone()
+                    if not row:
+                        continue
+                    post = dict(row)
+            if path == "/api/actions/dispatch":
+                items = db.get_pending_queue(limit=10)
+                sent = 0
+                for q in items:
+                    cur = db.conn.execute("SELECT * FROM posts WHERE id = ?", (q["post_id"],))
+                    row = cur.fetchone()
+                    if not row:
+                        continue
+                    post = dict(row)
+                    plat = (q.get("platform") or os.getenv("DEFAULT_PUBLISHER", DEFAULT_PUBLISHER)).lower()
+                    if plat in ("all", "multi", "todos"):
+                        s1 = publish_via_instagram_direct(post)
+                        s2 = publish_via_webhook(post)
+                        s3 = publish_via_tiktok_direct(post) if is_tiktok_authenticated() else False
+                        success = s1 or s2 or s3
+                    elif plat in ("instagram", "instagram_direct", "instagrapi"):
+                        success = publish_via_instagram_direct(post)
+                    elif plat in ("tiktok", "tiktok_official"):
+                        from src.publisher.tiktok import publish_via_tiktok
+                        success = publish_via_tiktok(post)
+                    elif plat == "tiktok_direct":
+                        success = publish_via_tiktok_direct(post)
+                    elif plat in ("buffer", "buffer_api"):
+                        from src.publisher.buffer_api import publish_via_buffer
+                        success = publish_via_buffer(post)
+                    elif plat == "postproxy":
+                        success = publish_via_postproxy(post)
+                    elif plat in ("social_publisher", "social", "hub"):
+                        from src.publisher.social_publisher import publish_via_social_publisher
+                        success = publish_via_social_publisher(post)
+                    else:
+                        success = publish_via_webhook(post)
+                    if success:
+                        db.mark_queue_sent(q["id"])
+                        db.mark_post_published(post["id"])
+                        sent += 1
+                    else:
+                        db.mark_queue_failed(q["id"])
+                self._send_json({"success": True, "sent": sent, "total": len(items)})
+                return
+
+            if path == "/api/actions/publish-post":
+                post_id = int(data.get("post_id", 0))
+                from dotenv import load_dotenv
+                load_dotenv(ROOT_DIR / ".env", override=True)
+                pub = (data.get("publisher") or os.getenv("DEFAULT_PUBLISHER", DEFAULT_PUBLISHER)).lower()
+                cur = db.conn.execute("SELECT * FROM posts WHERE id = ?", (post_id,))
+                row = cur.fetchone()
+                if not row:
+                    self._send_json({"success": False, "error": "Post não encontrado"}, status=404)
+                    return
+                post = dict(row)
+
+                if pub in ("all", "multi", "todos"):
+                    # 1. Instagram Direto
+                    ok_ig = publish_via_instagram_direct(post)
+                    # 2. YouTube Shorts (via n8n Webhook)
+                    ok_yt = publish_via_webhook(post)
+                    # 3. TikTok Direto via Playwright (se logado)
+                    ok_tk = False
+                    if is_tiktok_authenticated():
+                        ok_tk = publish_via_tiktok_direct(post)
+
+                    success = ok_ig or ok_yt or ok_tk
+                    tt_status = f", TikTok: {'✅' if ok_tk else '❌'}" if is_tiktok_authenticated() else ""
+                    target_name = f"Multi-Canal (Instagram: {'✅' if ok_ig else '❌'}, YouTube: {'✅' if ok_yt else '❌'}{tt_status})"
+                elif pub in ("instagram", "instagram_direct", "instagrapi"):
+                    success = publish_via_instagram_direct(post)
+                    target_name = "Instagram Direto"
+                elif pub in ("tiktok", "tiktok_official"):
+                    from src.publisher.tiktok import publish_via_tiktok
+                    success = publish_via_tiktok(post)
+                    target_name = "TikTok Oficial (API v2)"
+                elif pub == "tiktok_direct":
+                    success = publish_via_tiktok_direct(post)
+                    target_name = "TikTok Direto (Playwright)"
+                elif pub in ("buffer", "buffer_api"):
+                    from src.publisher.buffer_api import publish_via_buffer
+                    success = publish_via_buffer(post)
+                    target_name = "Buffer API (direto)"
+                elif pub == "postproxy":
+                    success = publish_via_postproxy(post)
+                    target_name = "Postproxy"
+                elif pub in ("social_publisher", "social", "hub"):
+                    from src.publisher.social_publisher import publish_via_social_publisher
+                    success = publish_via_social_publisher(post)
+                    target_name = "Social Publisher Hub (:8000)"
+                else:
+                    success = publish_via_webhook(post)
+                    target_name = "n8n Webhook / Buffer"
+
+                if success:
+                    db.mark_post_published(post_id)
+                    db.conn.execute("UPDATE queue SET status = 'sent' WHERE post_id = ?", (post_id,))
+                    db.conn.commit()
+                    self._send_json({"success": True, "message": f"Post #{post_id} processado via {target_name}!"})
+                else:
+                    self._send_json({"success": False, "error": f"Falha ao enviar post #{post_id} via {target_name}. Verifique os logs."}, status=500)
+                return
+
+            self._send_json({"error": "Endpoint não encontrado"}, status=404)
+        finally:
+            db.close()
+
+
+def run_web_server(port: int = 5000) -> None:
+    STATIC_DIR.mkdir(parents=True, exist_ok=True)
+    server_address = ("0.0.0.0", port)
+    httpd = ThreadingHTTPServer(server_address, BibleReelsHandler)
+    log.info(f"Interface Web iniciada com sucesso em: http://localhost:{port}")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        log.info("Servidor Web finalizado.")
+        httpd.server_close()
+
+
+if __name__ == "__main__":
+    port = 5000
+    if len(sys.argv) > 1 and sys.argv[1].isdigit():
+        port = int(sys.argv[1])
+    run_web_server(port)

@@ -1,0 +1,15 @@
+[Unit]
+Description=Bible Reels Studio Web Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/bible-reels
+ExecStart=/home/ubuntu/bible-reels/.venv/bin/python web_server.py 5000 --no-browser
+Restart=always
+RestartSec=10
+EnvironmentFile=/home/ubuntu/bible-reels/.env
+
+[Install]
+WantedBy=multi-user.target

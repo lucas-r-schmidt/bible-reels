@@ -1,0 +1,148 @@
+{
+  "10-12": {
+    "name": "Nossa Senhora Aparecida",
+    "title": "Padroeira e Rainha do Brasil",
+    "quote": "Sob a vossa proteção nos refugiamos, ó Santa Mãe de Deus. Não desprezeis as nossas súplicas em nossas necessidades.",
+    "prayer": "Ó incomparável Senhora da Conceição Aparecida, Mãe de Deus e nossa Mãe, protegei o nosso Brasil, abençoai nossas famílias e derramai vossas graças sobre cada um de nós. Amém.",
+    "history": "Em outubro de 1717, três humildes pescadores no Rio Paraíba do Sul retiraram das águas a imagem quebrada de Nossa Senhora da Conceição — primeiro o corpo, depois a cabeça. Em seguida, suas redes encheram-se milagrosamente de peixes. A devoção à Virgem Negra floresceu como símbolo de esperança, amor maternal e proteção do povo brasileiro."
+  },
+  "10-13": {
+    "name": "Nossa Senhora de Fátima",
+    "title": "A Última Aparição e o Milagre do Sol",
+    "quote": "Rezem o terço todos os dias para alcançarem a paz para o mundo e o fim da guerra.",
+    "prayer": "Ó Virgem de Fátima, Senhora do Rosário, ensinai-nos a acolher os apelos do Teu Imaculado Coração e derramai a paz sobre as nossas famílias. Amém.",
+    "history": "Em 13 de outubro de 1917, na Cova da Iria, mais de 70 mil pessoas testemunharam o extraordinário 'Milagre do Sol', confirmando os segredos confiados aos três pastorinhos. A data encerra o ciclo das aparições de Fátima e é celebrada com imensa devoção nas comunidades católicas de todo o Brasil."
+  },
+  "08-13": {
+    "name": "Santa Dulce dos Pobres",
+    "title": "Memória Litúrgica no Brasil — O Anjo Bom da Bahia",
+    "quote": "No coração de quem ama a Deus, não há espaço para o ódio ou o desânimo.",
+    "prayer": "Senhor, dai-nos a caridade simples e generosa de Santa Dulce, para que possamos enxergar o Teu rosto nos mais necessitados. Amém.",
+    "history": "Celebrada liturgicamente no Brasil em 13 de agosto pela CNBB, data em que tomou o hábito religioso em 1933. Maria Rita de Sousa Brito Lopes Pontes dedicou sua vida aos enfermos e desvalidos em Salvador, tornando-se a primeira santa nascida no Brasil."
+  },
+  "10-04": {
+    "name": "São Francisco de Assis",
+    "title": "Patrono da Paz e da Criação",
+    "quote": "Senhor, fazei-me instrumento de vossa paz. Onde houver ódio, que eu leve o amor.",
+    "prayer": "Senhor Jesus, ensinai-nos a amar toda a criação com a simplicidade e a pureza de São Francisco de Assis. Fazei de nós mensageiros de concórdia e caridade. Amém.",
+    "history": "Nascido em Assis no século XII, Francisco renunciou à nobreza e aos bens materiais para abraçar a 'Dama Pobreza'. Fundou a Ordem dos Franciscanos, pregou a reconciliação e o respeito fraterno a todas as criaturas de Deus."
+  },
+  "10-01": {
+    "name": "Santa Teresinha do Menino Jesus",
+    "title": "Doutora da Igreja e Padroeira das Missões",
+    "quote": "Compreendi que o amor encerra todas as vocações, que o amor é tudo.",
+    "prayer": "Santa Teresinha, derramai do Céu uma chuva de rosas sobre nossas vidas e ensinai-nos o vosso caminho de confiança total no amor de Deus. Amém.",
+    "history": "Marie-Françoise-Thérèse Martin entrou no Carmelo de Lisieux aos 15 anos. Viveu a 'Pequena Via', que consiste em realizar com amor extraordinário até os menores gestos cotidianos oferecidos a Deus."
+  },
+  "10-28": {
+    "name": "São Judas Tadeu",
+    "title": "Apóstolo e Patrono das Causas Aflitas e Desesperadas",
+    "quote": "Mantende-vos no amor de Deus, esperando a misericórdia de nosso Senhor Jesus Cristo.",
+    "prayer": "São Judas Tadeu, apóstolo fiel e patrono dos aflitos, rogai por nós nas causas mais difíceis e alcançai-nos a bênção da perseverança na fé. Amém.",
+    "history": "Primo de Jesus e mártir da fé, São Judas Tadeu percorreu a Mesopotâmia e a Pérsia anunciando o Evangelho com fidelidade heroica. Sua intercessão é invocada mundialmente nos momentos de angústia extrema."
+  },
+  "06-13": {
+    "name": "Santo Antônio de Pádua",
+    "title": "Doutor Evangélico e Protetor dos Pobres",
+    "quote": "A fé sem as obras é morta. Quem ama a Deus não apenas fala d'Ele, mas vive a Sua Palavra.",
+    "prayer": "Santo Antônio, mestre da Palavra e amigo dos humildes, ajudai-nos a encontrar a paz, a reconciliação e a graça de que necessitamos. Amém.",
+    "history": "Nascido em Lisboa e falecido em Pádua, Santo Antônio foi um dos maiores teólogos e pregadores da Igreja Católica. Famoso por sua caridade inesgotável com o pão dos pobres e pelo dom dos milagres."
+  },
+  "06-24": {
+    "name": "São João Batista",
+    "title": "O Precursor do Senhor",
+    "quote": "É necessário que Ele cresça e que eu diminua.",
+    "prayer": "Deus eterno, que enviastes São João Batista para preparar os caminhos do Salvador, purificai os nossos corações com o fogo do arrependimento e da verdade. Amém.",
+    "history": "O maior dos profetas nascido de mulher, anunciou a vinda de Jesus Cristo nas margens do Rio Jordão e batizou o Cordeiro de Deus, selando com seu martírio o testemunho incondicional da verdade."
+  },
+  "03-19": {
+    "name": "São José",
+    "title": "Esposo da Virgem Maria e Patrono da Igreja Universal",
+    "quote": "O silêncio de São José nos ensina que a verdadeira grandeza reside na obediência fiel e no amor discreto.",
+    "prayer": "Ó glorioso São José, protetor da Sagrada Família, velai por nossos lares, concedei-nos o sustento digno do trabalho e guardai nossos corações na retidão. Amém.",
+    "history": "Homem justo e carpinteiro de Nazaré, recebeu de Deus a sublime missão de proteger o Menino Jesus e a Virgem Maria, governando a Sagrada Família com ternura, prudência e trabalho diligente."
+  },
+  "04-23": {
+    "name": "São Jorge",
+    "title": "Soldado de Cristo e Grande Mártir",
+    "quote": "Eu andarei vestido e armado com as armas de Deus, para que meus inimigos não me alcancem.",
+    "prayer": "Ó São Jorge, guerreiro leal e defensor da justiça, dai-nos coragem para vencer as batalhas espirituais e protegei-nos de todo o mal sob o vosso escudo. Amém.",
+    "history": "Soldado romano na Capadócia, São Jorge defendeu publicamente os cristãos perseguidos pelo imperador Diocleciano. Preferiu o martírio à apostasia, tornando-se arquétipo da vitória da fé contra a opressão."
+  },
+  "05-22": {
+    "name": "Santa Rita de Cássia",
+    "title": "Advogada das Causas Impossíveis",
+    "quote": "Não há sofrimento vão quando é oferecido com amor ao lado da Cruz de Cristo.",
+    "prayer": "Santa Rita de Cássia, modelo de paciência e perdão, intercedei por nós nos momentos de desespero e alcançai-nos a graça de transformar as dores em flores de caridade. Amém.",
+    "history": "Esposa paciente, mãe dedicada e mais tarde religiosa agostiniana, Santa Rita superou tragédias familiares através do perdão heróico. Recebeu o estigma de um espinho da coroa de Jesus em sua fronte."
+  },
+  "07-11": {
+    "name": "São Bento de Núrsia",
+    "title": "Pai do Monaquismo Ocidental e Padroeiro da Europa",
+    "quote": "Ora et labora — Reza e trabalha.",
+    "prayer": "A Cruz Sagrada seja a minha luz, não seja o dragão o meu guia. Retira-te, satanás, nunca me aconselhes coisas vãs. É mau o que tu me ofereces, bebe tu mesmo o teu veneno. Amém.",
+    "history": "Fundador da Abadia de Monte Cassino e da Ordem dos Beneditinos, escreveu a célebre Regra que equilibra oração, silêncio e trabalho diligente, sendo reconhecido como grande defensor contra as ciladas do maligno."
+  },
+  "09-29": {
+    "name": "Santos Arcanjos Miguel, Gabriel e Rafael",
+    "title": "Príncipes da Milícia Celeste",
+    "quote": "Quem como Deus? Ninguém como Deus!",
+    "prayer": "São Miguel Arcanjo, defendei-nos no combate. Sede o nosso refúgio contra as maldades e ciladas do demônio. Ordene-lhe Deus, instantemente o pedimos. Amém.",
+    "history": "Mensageiros supremos do Altíssimo: Miguel combate as forças das trevas, Gabriel anuncia os mistérios da Salvação e Rafael conduz a cura do corpo e da alma nas jornadas da vida."
+  },
+  "12-08": {
+    "name": "Imaculada Conceição da Virgem Maria",
+    "title": "Cheia de Graça e Rainha dos Céus",
+    "quote": "Minha alma engrandece ao Senhor, e o meu espírito se alegra em Deus, meu Salvador.",
+    "prayer": "Ó Maria concebida sem pecado, rogai por nós que recorremos a vós. Purificai nosso olhar e guardai nossa alma na santidade. Amém.",
+    "history": "Dogma proclamado em 1854 pelo Papa Pio IX, que celebra a graça singular concedida à Virgem Maria de ser preservada de toda mancha do pecado original desde o primeiro instante de sua concepção."
+  },
+  "12-25": {
+    "name": "Natal de Nosso Senhor Jesus Cristo",
+    "title": "A Natividade do Salvador",
+    "quote": "O Verbo se fez carne e habitou entre nós, cheio de graça e de verdade.",
+    "prayer": "Senhor Jesus Cristo, Menino Deus nascido em Belém, renascei hoje em nossos lares e trazei a Tua paz verdadeira a todos os corações. Amém.",
+    "history": "A maior celebração da esperança humana: o próprio Deus que assume a nossa condição frágil numa manjedoura para resgatar a humanidade pelas vias do amor e da humildade."
+  },
+  "10-14": {
+    "name": "São Calisto I",
+    "title": "Papa e Mártir",
+    "quote": "A fé firme é a âncora que nos sustém nas tempestades da vida.",
+    "prayer": "Ó São Calisto, exemplo de coragem e fé,\nintercede por nós junto ao Senhor.\nQue possamos permanecer firmes na verdade,\ncomo tu permaneceste até o martírio.",
+    "history": "Calisto nasceu na Grécia por volta do século III e, após uma vida dedicada ao serviço e à oração, foi eleito papa em 251. Seu pontificado coincidiu com a perseguição de Decio, durante a qual ele sofreu torturas e foi exilado, mas manteve a esperança e a liderança da Igreja.\nEle morreu como mártir em 258, após recusar renunciar à fé cristã. Seu testemunho de coragem e fidelidade inspirou gerações, sendo lembrado como defensor da ortodoxia e modelo de resistência diante da opressão."
+  },
+  "10-15": {
+    "name": "Santa Teresa de Ávila",
+    "title": "Virgem e Doutora da Igreja",
+    "quote": "A oração é a chave que abre o coração de Deus.",
+    "prayer": "Ó Santa Teresa, interceda por nós junto a Cristo.\nConduza-nos à intimidade com o Senhor e à prática da sua vontade.\nAmém.",
+    "history": "Nascida em 1515 em Gotarrendura, Espanha, Teresa de Ávila entrou no convento de São José de Ávila aos 20 anos. Recebeu o dom da visão mística e, após profundas experiências de oração, reformou a ordem carmelita, fundando numerosos conventos que enfatizavam a vida contemplativa e a disciplina espiritual.\nComo escritora, sua obra-prima \"O Livro da Vida\" e outros tratados revelam a profundidade da sua teologia interior. Declarada Doutora da Igreja em 1970, sua influência perdura, inspirando a vida de oração, a reforma religiosa e a busca de uma relação pessoal e autêntica com Deus."
+  },
+  "10-21": {
+    "name": "Santa Úrsula",
+    "title": "E as onze companheiras mártires",
+    "quote": "Sou esposa de Cristo, o maior dos reis, e recuso toda sedução terrena.",
+    "prayer": "As santas mártires, que deram o testemunho de Cristo com seu sangue e viveram dedicadas à educação cristã,\nintercedei pelas religiosas que propagam o carisma, sede auxílio materno a todos que recorrem a ti.\nPor Cristo, nosso Senhor. Amém.",
+    "history": "Santa Úrsula nasceu em 362, filha dos reis da Cornúbia, na Inglaterra. Desde jovem fez um voto secreto de consagração total a Deus, o que a fez recusar o casamento proposto pelo duque pagão Conanus, apesar da pressão de seu pai. Pediu três anos para tentar converter o pretendente, mas sem sucesso, e partiu para as núpcias acompanhada de onze jovens virgens. A comitiva navegou pelo Reno até Colônia, onde o exército de Átila atacou; todos foram mortos, exceto Úrsula, cuja beleza encantou o próprio rei dos hunos. Ao ser proposta em casamento, ela respondeu que já era esposa de Cristo, e Átila, enfurecido, degolou‑a em 21 de outubro de 383.\n\nNa Idade Média, Ângela de Mérici fundou a Companhia de Santa Úrsula para oferecer formação cristã às meninas, desejando que fossem multiplicadoras do Evangelho. As Irmãs Ursulinas, como são chamadas, mantêm viva a memória de Santa Úrsula e de sua fundadora, espalhando sua missão pelos cinco continentes.",
+    "image_url": "https://img.cancaonova.com/cnimages/canais/uploads/sites/2/2022/10/Santa-Úrsula.jpg",
+    "source_url": "https://santo.cancaonova.com/santo/santa-ursula-e-as-onze-companheiras-martires/?sDia=21&sMes=10&sAno=2026"
+  },
+  "10-22": {
+    "name": "São João Paulo II",
+    "title": "O terceiro maior Pontificado da História da Igreja",
+    "quote": "A dor transforma‑se em oração; quem salva uma vida salva o mundo inteiro.",
+    "prayer": "Nosso santo Papa da Juventude, suscite novos pastores de jovens e dê-lhes o mesmo amor que tens.\nConduza seus filhos queridos a encontrar e viver sua vocação em cada estado de vida.\nAmém.",
+    "history": "Karol Józef Wojtyła nasceu em 18 de maio de 1920, em Wadowice, sendo o mais novo de três irmãos. A gestação foi de risco, mas sua mãe, Emilia, manteve‑a, e ele recebeu o apelido carinhoso de Lolek. Perdeu a irmã Olga antes de nascer, o irmão Edmund, médico que morreu de escarlatina, e, aos 21 anos, seu pai, de quem herdou devoção à Virgem Maria, honestidade e patriotismo, formando seu primeiro “seminário doméstico”.\n\nMesmo diante das perdas, enfrentou a ocupação nazista trabalhando em pedreira e indústria química para evitar a deportação. Assistiu aos horrores da guerra, conhecendo histórias de sofrimento que reforçaram seu amor pela Polônia e a convicção de que salvar uma vida salva o mundo inteiro, preparando‑o para o futuro pontificado.",
+    "image_url": "https://img.cancaonova.com/cnimages/canais/uploads/sites/2/2022/10/São-João-Paulo-II-300-x-300-1.jpg",
+    "source_url": "https://santo.cancaonova.com/santo/sao-joao-paulo-ii-o-terceiro-maior-pontificado-da-historia-da-igreja/?sDia=22&sMes=10&sAno=2026"
+  },
+  "10-25": {
+    "name": "Santo Antônio de Sant’Anna Galvão",
+    "title": "O Frei Galvão",
+    "quote": "Que a devoção a Maria nos faça santos, como a vida de Galvão nos inspira.",
+    "prayer": "Poderoso santo brasileiro, que por tua intensa devoção mariana alcançaste mil prodígios, sê nosso protetor e pai espiritual.\nConcede-nos o mesmo amor a Maria, para que, seguindo teu exemplo, alcancemos a santidade. Amém.",
+    "history": "Frei Galvão nasceu em 10 de maio de 1739, na Vila de Santo Antônio de Guaratinguetá, São Paulo, sendo o quarto de dez filhos de família nobre e religiosa. Enviado aos 13 anos ao Colégio de Belém, na Bahia, estudou ciências humanas, destacando‑se em construção civil e prática cristã, e após a morte de sua mãe adotou Sant’Ana como mãe espiritual, tomando o nome religioso de “Frei Antônio de Sant’Anna Galvão”.\n\nOrdenado sacerdote em 11 de julho de 1762, serviu no Convento de São Francisco, São Paulo, onde aprofundou Filosofia e Teologia. Em 1768 tornou‑se confessor, pregador e porteiro, ganhando o título de “novo esplendor do Convento” e, em 1770, foi admitido na Academia Paulistana de Letras por suas composições em latim, odes e epigramas.",
+    "image_url": "https://img.cancaonova.com/cnimages/canais/uploads/sites/2/2023/10/Frei-Galvão.jpg",
+    "source_url": "https://santo.cancaonova.com/santo/santo-antonio-de-santanna-galvao-o-frei-galvao/?sDia=25&sMes=10&sAno=2026"
+  }
+}

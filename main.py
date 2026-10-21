@@ -1,0 +1,747 @@
+"""
+main.py
+-------
+Pipeline CLI principal para automação de vídeos/posts bíblicos e motivacionais.
+
+Modos de uso:
+    python main.py --all                   # Executa fluxo completo (coleta -> IA -> imagem -> fila)
+    python main.py --collect --source bible # Apenas coleta versículos bíblicos
+    python main.py --collect --source quotes# Apenas coleta frases do JSON local
+    python main.py --process               # Processa versículos pendentes com Gemini Flash
+    python main.py --media                 # Gera imagens verticais (9:16)
+    python main.py --dispatch              # Dispara posts para webhooks/fila
+    python main.py --daemon                # Executa em loop agendado
+"""
+import argparse
+import os
+import random
+import re
+import sys
+import time
+from datetime import date, datetime, timedelta, time as dtime
+from pathlib import Path
+
+from config.settings import DB_PATH, POSTS_PER_RUN, DEFAULT_PUBLISHER, OUTPUT_IMAGES, OUTPUT_VIDEOS
+from src.collector.bible_api import collect_verses
+from src.collector.local_quotes import collect_quotes
+from src.collector.saints import collect_saint_of_day, get_saint_for_date, get_saint_image
+from src.media_gen.image_builder import generate_post_image
+from src.media_gen.video_builder import generate_video_from_image
+from src.processor.ai_formatter import format_verse, format_saint_post
+from src.processor.db_manager import DBManager
+from src.publisher.postproxy import PostproxyPublisher, publish_via_postproxy
+from src.publisher.webhook import publish_via_webhook
+from src.publisher.instagram_direct import publish_via_instagram_direct
+from src.publisher.tiktok_direct import publish_via_tiktok_direct, is_tiktok_authenticated
+from src.utils.logger import get_logger
+
+log = get_logger("main")
+
+def step_collect(db: DBManager, source: str = "both", count: int = 5, theme: str = "general") -> None:
+    log.info(f"=== [1/4] Coleta de Conteúdo (Fonte: {source}, Meta: {count}, Tema: {theme}) ===")
+    if source == "both":
+        if count == 1:
+            # Alterna dinamicamente entre versículo e mensagem motivacional/reflexão
+            chosen = random.choice(["bible", "quotes"])
+            log.info(f"Fonte selecionada para este post: {chosen.upper()}")
+            if chosen == "bible":
+                collect_verses(db, count=1, theme=theme)
+            else:
+                collect_quotes(db, count=1, theme=theme)
+        else:
+            c_bible = count // 2
+            c_quotes = count - c_bible
+            collect_verses(db, count=c_bible, theme=theme)
+            collect_quotes(db, count=c_quotes, theme=theme)
+    elif source == "bible":
+        collect_verses(db, count=count, theme=theme)
+    elif source == "quotes":
+        collect_quotes(db, count=count, theme=theme)
+    elif source in ("saint", "saints", "santo"):
+        from datetime import date, timedelta
+        # Publicação às 20:30 da véspera: busca o santo do dia seguinte!
+        tomorrow = date.today() + timedelta(days=1)
+        collect_saint_of_day(db, target_date=tomorrow)
+
+def step_process(db: DBManager, limit: int = 5, publisher: str = DEFAULT_PUBLISHER, theme: str = "general", source: str | None = None) -> None:
+    log.info(f"=== [2/4] Processamento com Gemini Flash (Limite: {limit}, Tema: {theme}) ===")
+    unused = db.get_unused_verses(limit=limit, source=source)
+    if not unused:
+        log.info("Nenhum versículo pendente de formatação.")
+        return
+
+    for item in unused:
+        log.info(f"Processando verso ID={item['id']}: {item['reference']} (Origem: {item.get('source')}, Tema: {theme})")
+        if item.get("source") == "saint":
+            import re
+            from datetime import date
+            target_d = None
+            date_match = re.search(r"\((\d{1,2})/(\d{1,2})\)", item["reference"])
+            if date_match:
+                target_d = date(date.today().year, int(date_match.group(2)), int(date_match.group(1)))
+            saint_meta = get_saint_for_date(target_d)
+            ai_data = format_saint_post(item["reference"], item["text"], saint_metadata=saint_meta, is_eve=True)
+        else:
+            try:
+                ai_data = format_verse(item["reference"], item["text"], theme=theme)
+            except Exception as exc:
+                log.warning(f"Falha na chamada Gemini ({exc}). Usando fallback local.")
+                ai_data = None
+
+            if not ai_data:
+                if theme == "morning":
+                    ai_data = {
+                        "formatted_text": f"{item['text']}\n\n— {item['reference']}",
+                        "hashtags": ["bomdia", "forca", "animo", "devocionalmatinal", "fe", "palavradodia", "reelsbrasil"],
+                        "visual_prompt": "Cinematic sunrise over golden mountains, hopeful morning dawn, warm sunlight"
+                    }
+                elif theme == "midday":
+                    ai_data = {
+                        "formatted_text": f"{item['text']}\n\n— {item['reference']}",
+                        "hashtags": ["meiodia", "fe", "sabedoria", "perseveranca", "palavradedeus", "reelsbrasil", "motivacaocrista"],
+                        "visual_prompt": "Radiant midday sunbeams over lush green hills and clear blue skies, cinematic and bright"
+                    }
+                elif theme == "evening":
+                    ai_data = {
+                        "formatted_text": f"{item['text']}\n\n— {item['reference']}",
+                        "hashtags": ["boanoite", "gratidao", "paz", "descanso", "fe", "alivio", "oracaodanoite"],
+                        "visual_prompt": "Serene twilight lake with calm water at sunset, tranquil stars and gentle evening peace"
+                    }
+                else:
+                    ai_data = {
+                        "formatted_text": f"{item['text']}\n\n— {item['reference']}",
+                        "hashtags": ["fe", "gratidao", "motivacao", "palavradedeus", "reelsbrasil", "tiktokcristao"],
+                        "visual_prompt": "Serene cinematic landscape at sunrise, golden sunlight filtering through mountains"
+                    }
+
+        post_id = db.insert_post(
+            verse_id=item["id"],
+            formatted_text=ai_data["formatted_text"],
+            hashtags=ai_data["hashtags"],
+            visual_prompt=ai_data["visual_prompt"],
+            caption=ai_data.get("caption", ""),
+            hook_title=ai_data.get("hook_title", "")
+        )
+        # Enfileira para publicador configurado
+        target_platform = publisher or DEFAULT_PUBLISHER
+        db.enqueue(post_id, target_platform)
+
+def step_media(db: DBManager, limit: int = 5, make_video: bool = True) -> None:
+    log.info(f"=== [3/4] Geração de Mídia Dinâmica (Vídeo Multi-Cena & Carrossel, Limite: {limit}) ===")
+    pending_posts = db.get_pending_posts(limit=limit)
+    if not pending_posts:
+        log.info("Nenhum post pendente de mídia.")
+        return
+
+    for post in pending_posts:
+        if post["image_path"] and not make_video:
+            continue
+
+        # Busca dados do verso original para referência
+        cur = db.conn.execute("SELECT reference, source FROM verses WHERE id = ?", (post["verse_id"],))
+        v_row = cur.fetchone()
+        ref = v_row["reference"] if v_row else "Reflexão"
+        source = v_row["source"] if v_row else ""
+
+        if source == "saint" or any(k in ref.lower() for k in ("santo", "santa", "são", "sao", "senhora")):
+            from src.media_gen.carousel_builder import generate_saint_carousel, build_saint_narration_text
+            target_date = None
+            date_match = re.search(r"\((\d{1,2})/(\d{1,2})\)", ref)
+            if date_match:
+                d_day, d_month = int(date_match.group(1)), int(date_match.group(2))
+                target_date = date(date.today().year, d_month, d_day)
+
+            clean_saint_name = ref.split("(")[0].strip()
+            saint_meta = get_saint_for_date(target_date) or {}
+            title_hook = saint_meta.get("quote", "") or post["formatted_text"].split("\n\n—")[0]
+            story_text = saint_meta.get("history", "") or post["formatted_text"]
+            prayer_text = saint_meta.get("prayer", "")
+
+            slides = generate_saint_carousel(
+                post_id=post["id"],
+                saint_name=clean_saint_name,
+                title_hook=title_hook,
+                story_text=story_text,
+                prayer_text=prayer_text
+            )
+            scenes_dir = slides[0].parent / "scenes" if slides else None
+            v_scenes = [scenes_dir / f"scene_{i+1:02d}.png" for i in range(len(slides))] if (scenes_dir and scenes_dir.is_dir()) else slides
+            img_path = (scenes_dir / "scene_01.png") if (scenes_dir and (scenes_dir / "scene_01.png").is_file()) else (
+                slides[0] if slides else generate_post_image(
+                    post_id=post["id"],
+                    text=post["formatted_text"],
+                    reference=clean_saint_name,
+                    badge_text="MENSAGEM DO SANTO DO DIA",
+                    bg_image_path=get_saint_image(clean_saint_name, target_date=target_date)
+                )
+            )
+            vid_target = img_path
+            slides_for_video = v_scenes
+            narration_text = build_saint_narration_text(clean_saint_name, title_hook, story_text, prayer_text)
+        else:
+            from src.collector.backgrounds import get_thematic_background
+            bg_img = get_thematic_background(post.get("visual_prompt", ""), reference=ref)
+            img_path = generate_post_image(
+                post_id=post["id"],
+                text=post["formatted_text"],
+                reference=ref,
+                badge_text=None,
+                bg_image_path=bg_img
+            )
+            hook_title = post.get("hook_title") or ""
+            from src.media_gen.image_builder import generate_verse_scenes
+            verse_scenes = generate_verse_scenes(
+                post["id"],
+                ref,
+                post["formatted_text"],
+                post.get("visual_prompt", ""),
+                hook_title=hook_title
+            )
+            vid_target = verse_scenes[0] if verse_scenes else img_path
+            slides_for_video = verse_scenes
+            from src.media_gen.tts import build_verse_narration_text
+            narration_text = build_verse_narration_text(
+                post["formatted_text"],
+                reference=ref,
+                hook_title=hook_title
+            )
+
+        vid_path_str = ""
+        if make_video:
+            vid_path = generate_video_from_image(vid_target, slides=slides_for_video, narration_text=narration_text)
+            if vid_path:
+                vid_path_str = str(vid_path)
+
+        db.update_post_media(post["id"], str(img_path), vid_path_str)
+
+def step_dispatch(db: DBManager, platform: str | None = None, limit: int = 10, make_video: bool = True, post_id: int | None = None) -> int:
+    log.info(f"=== [4/4] Distribuição e Fila (Limite de envio: {limit}, Post ID: {post_id or 'todos'}) ===")
+    filter_plat = None if platform == "all" else platform
+    if post_id:
+        items = db.conn.execute(
+            "SELECT * FROM queue WHERE post_id = ? AND status = 'pending' ORDER BY id ASC LIMIT 1",
+            (post_id,)
+        ).fetchall()
+        items = [dict(r) for r in items]
+        if not items:
+            p_row = db.conn.execute("SELECT id FROM posts WHERE id = ? AND status = 'created'", (post_id,)).fetchone()
+            if p_row:
+                db.enqueue(post_id, platform or DEFAULT_PUBLISHER)
+                items = [dict(r) for r in db.conn.execute(
+                    "SELECT * FROM queue WHERE post_id = ? AND status = 'pending' LIMIT 1", (post_id,)
+                ).fetchall()]
+    else:
+        items = db.get_pending_queue(platform=filter_plat, limit=limit)
+        if not items:
+            # Fallback de segurança: se a fila estiver vazia, verifica se há posts recentes com status 'created'
+            pending_posts = db.conn.execute(
+                "SELECT id FROM posts WHERE status = 'created' AND created_at >= datetime('now', '-1 day') ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+            for p_row in pending_posts:
+                db.enqueue(p_row[0], platform or DEFAULT_PUBLISHER)
+            if pending_posts:
+                items = db.get_pending_queue(platform=filter_plat, limit=limit)
+
+    if not items:
+        log.info("Fila vazia ou nenhum item pendente.")
+        return 0
+
+    dispatched = 0
+    for q in items:
+        cur = db.conn.execute("SELECT * FROM posts WHERE id = ?", (q["post_id"],))
+        row = cur.fetchone()
+        if not row:
+            continue
+        post = dict(row)
+
+        # Ignora se já tiver sido postado anteriormente
+        if post.get("status") == "published":
+            log.info(f"Post #{post['id']} já publicado anteriormente. Ignorando reenvio.")
+            db.mark_queue_sent(q["id"])
+            continue
+
+        # Verifica se o arquivo de mídia existe fisicamente no disco
+        def _has_file(p: str | None, folder: Path) -> bool:
+            if not p:
+                return False
+            if os.path.isfile(p):
+                return True
+            return (folder / Path(p).name).is_file()
+
+        has_media = _has_file(post.get("video_path"), OUTPUT_VIDEOS) or _has_file(post.get("image_path"), OUTPUT_IMAGES)
+
+        # Se não tiver mídia gerada ainda, renderiza agora antes de disparar
+        if not has_media:
+            log.info(f"Post #{post['id']} sem mídia em disco. Gerando agora...")
+            cur_v = db.conn.execute("SELECT reference, source FROM verses WHERE id = ?", (post["verse_id"],))
+            v_row = cur_v.fetchone()
+            ref = v_row["reference"] if v_row else "Reflexão"
+            source = v_row["source"] if v_row else ""
+
+            if source == "saint" or any(k in ref.lower() for k in ("santo", "santa", "são", "sao", "senhora")):
+                from src.media_gen.carousel_builder import generate_saint_carousel, build_saint_narration_text
+                saint_meta = get_saint_for_date()
+                title_hook = saint_meta.get("quote", "") or post["formatted_text"].split("\n\n—")[0]
+                story_text = saint_meta.get("history", "") or post["formatted_text"]
+                prayer_text = saint_meta.get("prayer", "")
+                slides = generate_saint_carousel(
+                    post_id=post["id"],
+                    saint_name=ref,
+                    title_hook=title_hook,
+                    story_text=story_text,
+                    prayer_text=prayer_text
+                )
+                img_path = slides[0] if slides else generate_post_image(
+                    post_id=post["id"],
+                    text=post["formatted_text"],
+                    reference=ref,
+                    badge_text="MENSAGEM DO SANTO DO DIA",
+                    bg_image_path=get_saint_image(ref)
+                )
+                vid_target = img_path
+                slides_for_vid = slides
+                narration_text = build_saint_narration_text(ref, title_hook, story_text, prayer_text)
+            else:
+                from src.media_gen.image_builder import generate_verse_scenes
+                verse_scenes = generate_verse_scenes(post["id"], ref, post["formatted_text"], post.get("visual_prompt", ""))
+                img_path = verse_scenes[0] if verse_scenes else generate_post_image(post_id=post["id"], text=post["formatted_text"], reference=ref)
+                vid_target = verse_scenes[0] if verse_scenes else img_path
+                slides_for_vid = verse_scenes
+                from src.media_gen.tts import build_verse_narration_text
+                narration_text = build_verse_narration_text(post["formatted_text"], reference=ref)
+
+            vid_path_str = ""
+            if make_video:
+                vid_path = generate_video_from_image(vid_target, slides=slides_for_vid, narration_text=narration_text)
+                if vid_path:
+                    vid_path_str = str(vid_path)
+            db.update_post_media(post["id"], str(img_path), vid_path_str)
+            post["image_path"] = str(img_path)
+            post["video_path"] = vid_path_str
+
+        q_plat = (q.get("platform") or DEFAULT_PUBLISHER).lower()
+
+        if q_plat in ("all", "multi", "todos"):
+            log.info(f"Disparando Post #{post['id']} em modo Multi-Canal (Instagram + YouTube/Webhook + TikTok)...")
+            ok_ig = publish_via_instagram_direct(post)
+            ok_yt = publish_via_webhook(post)
+            ok_tk = publish_via_tiktok_direct(post) if is_tiktok_authenticated() else False
+            success = ok_ig or ok_yt or ok_tk
+        elif q_plat in ("instagram", "instagram_direct", "instagrapi"):
+            success = publish_via_instagram_direct(post)
+        elif q_plat in ("tiktok", "tiktok_official"):
+            from src.publisher.tiktok import publish_via_tiktok
+            success = publish_via_tiktok(post)
+        elif q_plat == "tiktok_direct":
+            success = publish_via_tiktok_direct(post)
+        elif q_plat == "webhook":
+            success = publish_via_webhook(post)
+        elif q_plat == "postproxy":
+            success = publish_via_postproxy(post)
+        elif q_plat in ("buffer", "buffer_api"):
+            from src.publisher.buffer_api import publish_via_buffer
+            success = publish_via_buffer(post)
+        else:
+            log.warning(f"Plataforma '{q_plat}' não reconhecida. Usando Webhook.")
+            success = publish_via_webhook(post)
+
+        if success:
+            db.mark_queue_sent(q["id"])
+            db.mark_post_published(post["id"])
+            dispatched += 1
+            log.info(f"Post #{post['id']} publicado e marcado como enviado.")
+        else:
+            db.mark_queue_failed(q["id"])
+
+    return dispatched
+
+def list_postproxy_profiles() -> None:
+    publisher = PostproxyPublisher()
+    try:
+        profiles = publisher.listar_perfis()
+        log.info(f"=== Perfis Conectados no Postproxy ({len(profiles)}) ===")
+        for p in profiles:
+            pid = p.get("id") or p.get("accountId")
+            name = p.get("name") or p.get("username") or "Sem nome"
+            plat = p.get("platform") or p.get("type") or "desconhecida"
+            print(f"- [{str(plat).upper()}] ID: {pid} | Nome: {name}")
+    except Exception as exc:
+        log.error(f"Erro ao listar perfis do Postproxy: {exc}")
+
+def run_saint_pipeline(
+    target_date: date | None = None,
+    publisher: str = DEFAULT_PUBLISHER,
+    make_video: bool = True,
+    dispatch: bool = False
+) -> None:
+    """Executa o pipeline completo para geração do Santo do Dia em 1 comando."""
+    log.info("=== [PIPELINE ESPECIAL] Santo do Dia ===")
+    db = DBManager(DB_PATH)
+    try:
+        t_date = target_date or (date.today() + timedelta(days=1) if datetime.now().hour >= 18 else date.today())
+
+        # Idempotência: verifica se post já existe para a data do santo
+        has_saint, s_post = db.has_saint_post_for_date(t_date)
+        if has_saint and s_post:
+            if s_post.get("status") == "published":
+                log.info(
+                    f"Post do Santo ({t_date.strftime('%d/%m')}) já foi publicado "
+                    f"(Post #{s_post['id']}). Ignorando execução para evitar post duplicado."
+                )
+                return
+            elif s_post.get("status") == "created":
+                log.info(
+                    f"Post do Santo ({t_date.strftime('%d/%m')}) já estava gerado "
+                    f"(Post #{s_post['id']}). Despachando agora para publicação..."
+                )
+                q_item = db.conn.execute("SELECT id FROM queue WHERE post_id = ? AND status = 'pending'", (s_post['id'],)).fetchone()
+                if not q_item:
+                    db.enqueue(s_post['id'], publisher)
+                if dispatch:
+                    step_dispatch(db, platform=publisher, limit=1, make_video=make_video, post_id=s_post['id'])
+                return
+
+        saint = collect_saint_of_day(db, target_date=t_date, force=True)
+        if not saint:
+            log.error(f"Falha ao identificar Santo do Dia para {t_date.strftime('%d/%m')}.")
+            return
+
+        verse_id = saint.get("verse_id")
+        ref_label = f"{saint['name']} ({saint.get('date_str', '')})"
+        log.info(f"Formatando post do Santo do Dia com IA: {ref_label}...")
+
+        is_eve = (t_date > date.today())
+        ai_data = format_saint_post(
+            reference=ref_label,
+            text=saint.get("quote", ""),
+            saint_metadata=saint,
+            is_eve=is_eve
+        )
+
+        post_id = db.insert_post(
+            verse_id=verse_id,
+            formatted_text=ai_data["formatted_text"],
+            hashtags=ai_data["hashtags"],
+            visual_prompt=ai_data["visual_prompt"],
+            caption=ai_data.get("caption", "")
+        )
+
+        log.info(f"Gerando carrossel narrativo de 5 lâminas e cenas dinâmicas para {saint['name']}...")
+        from src.media_gen.carousel_builder import generate_saint_carousel, build_saint_narration_text
+        slides = generate_saint_carousel(
+            post_id=post_id,
+            saint_name=saint["name"],
+            title_hook=saint.get("quote", ""),
+            story_text=saint.get("history", ""),
+            prayer_text=saint.get("prayer", "")
+        )
+        scenes_dir = slides[0].parent / "scenes" if slides else None
+        v_scenes = [scenes_dir / f"scene_{i+1:02d}.png" for i in range(len(slides))] if (scenes_dir and scenes_dir.is_dir()) else slides
+        img_path = (scenes_dir / "scene_01.png") if (scenes_dir and (scenes_dir / "scene_01.png").is_file()) else (
+            slides[0] if slides else generate_post_image(
+                post_id=post_id,
+                text=ai_data["formatted_text"],
+                reference=saint["name"],
+                badge_text="MENSAGEM DO SANTO DO DIA",
+                bg_image_path=get_saint_image(saint["name"], target_date=t_date)
+            )
+        )
+
+        vid_path_str = ""
+        # Santo do Dia gera simultaneamente o vídeo sequencial multi-cena para TikTok e YouTube Shorts
+        saint_narration = build_saint_narration_text(
+            saint_name=saint["name"],
+            title_hook=saint.get("quote", ""),
+            story_text=saint.get("history", ""),
+            prayer_text=saint.get("prayer", "")
+        )
+        if make_video:
+            try:
+                vid_path = generate_video_from_image(img_path, slides=v_scenes, narration_text=saint_narration)
+                if vid_path:
+                    vid_path_str = str(vid_path)
+            except Exception as e_vid:
+                log.warning(f"Vídeo de apoio do Santo do Dia não pôde ser gerado: {e_vid}")
+
+        db.update_post_media(post_id, str(img_path), vid_path_str)
+        target_platform = publisher or DEFAULT_PUBLISHER
+        db.enqueue(post_id, target_platform)
+        log.info(f"Post do Santo do Dia pronto na fila! (Post #{post_id} | Instagram: Carrossel | TikTok e YouTube: Vídeo MP4)")
+
+        if dispatch:
+            step_dispatch(db, platform=target_platform, limit=1, make_video=make_video, post_id=post_id)
+    finally:
+        db.close()
+
+
+def run_pipeline(
+    source: str = "both",
+    count: int = POSTS_PER_RUN,
+    make_video: bool = True,
+    publisher: str = DEFAULT_PUBLISHER,
+    dispatch_limit: int | None = None,
+    theme: str = "general"
+) -> None:
+    # Se a fonte for Santo do Dia, delega diretamente para o pipeline dedicado de Santo
+    if source in ("saint", "saints", "santo"):
+        from datetime import timedelta
+        # Na véspera às 20:30, o santo de interesse é o do dia seguinte!
+        target_saint_date = date.today() + timedelta(days=1)
+        run_saint_pipeline(
+            target_date=target_saint_date,
+            publisher=publisher,
+            make_video=make_video,
+            dispatch=True
+        )
+        return
+
+    db = DBManager(DB_PATH)
+    try:
+
+        step_collect(db, source=source, count=count, theme=theme)
+        step_process(db, limit=count, publisher=publisher, theme=theme, source=source if source != "both" else None)
+        step_media(db, limit=count, make_video=make_video)
+        limit_to_send = dispatch_limit if dispatch_limit is not None else count
+        step_dispatch(db, platform=publisher, limit=limit_to_send, make_video=make_video)
+        log.info(f"Pipeline concluído com sucesso! (Tema: {theme})")
+    finally:
+        db.close()
+
+def check_and_catchup_missed_post(
+    db: DBManager,
+    source: str = "both",
+    make_video: bool = True,
+    publisher: str = "buffer",
+    daily_count: int = 1,
+) -> None:
+    """
+    Auto-recuperação pós-reinicialização / queda do daemon:
+    Verifica se o post agendado para o período atual (manhã ou noite) já foi enviado hoje.
+    Se não foi enviado e o horário já passou, executa o pipeline imediatamente.
+    """
+    now = datetime.now().astimezone()
+    today = now.date()
+
+    morning_start = datetime.combine(today, dtime(6, 30, 0)).astimezone()
+    morning_end = datetime.combine(today, dtime(11, 59, 59)).astimezone()
+
+    afternoon_start = datetime.combine(today, dtime(12, 0, 0)).astimezone()
+    afternoon_end = datetime.combine(today, dtime(17, 59, 59)).astimezone()
+
+    evening_start = datetime.combine(today, dtime(18, 0, 0)).astimezone()
+    evening_end = datetime.combine(today, dtime(20, 29, 59)).astimezone()
+
+    saint_eve_start = datetime.combine(today, dtime(20, 30, 0)).astimezone()
+    saint_eve_end = datetime.combine(today, dtime(23, 59, 59)).astimezone()
+
+    log.info(f"[SELF-HEALING] Verificando se posts do dia foram entregues ({now.strftime('%d/%m/%Y %H:%M:%S')})...")
+
+    if now < morning_start:
+        log.info("⏳ Madrugada / início da manhã. Aguardando primeiro agendamento matinal (06:30).")
+        return
+
+    if morning_start <= now <= morning_end:
+        has_morning, post_info = db.has_post_published_between(morning_start, morning_end)
+        if has_morning and post_info:
+            pub_time = post_info.get("published_at", "")
+            log.info(f"✅ [OK] Post matinal das 06:30 de hoje já foi publicado (Post #{post_info.get('id')} às {pub_time[:19]}).")
+        else:
+            log.warning("⚠️ [CATCH-UP] Horário matinal (06:30) já passou e NENHUM post foi enviado nesta janela!")
+            log.info("🚀 Executando post de recuperação matinal (Bênção & Devocional) agora...")
+            try:
+                run_pipeline(
+                    source="bible",
+                    count=daily_count,
+                    make_video=make_video,
+                    publisher=publisher,
+                    dispatch_limit=daily_count,
+                    theme="morning",
+                )
+                log.info("✅ Post de recuperação matinal concluído com sucesso!")
+            except Exception as exc:
+                log.error(f"❌ Falha ao executar post de recuperação matinal: {exc}")
+        return
+
+    if afternoon_start <= now <= afternoon_end:
+        has_midday, post_info = db.has_post_published_between(afternoon_start, afternoon_end)
+        if has_midday and post_info:
+            pub_time = post_info.get("published_at", "")
+            log.info(f"✅ [OK] Post do meio-dia de hoje já foi publicado (Post #{post_info.get('id')} às {pub_time[:19]}).")
+        else:
+            log.warning("⚠️ [CATCH-UP] Horário do meio-dia (12:00) já passou e NENHUM post foi enviado nesta janela!")
+            log.info("🚀 Executando post de recuperação do meio-dia (Palavra de Fé & Sabedoria) agora...")
+            try:
+                run_pipeline(
+                    source="bible",
+                    count=daily_count,
+                    make_video=make_video,
+                    publisher=publisher,
+                    dispatch_limit=daily_count,
+                    theme="midday",
+                )
+                log.info("✅ Post de recuperação do meio-dia concluído com sucesso!")
+            except Exception as exc:
+                log.error(f"❌ Falha ao executar post de recuperação do meio-dia: {exc}")
+        return
+
+    if evening_start <= now <= evening_end:
+        has_evening, post_info = db.has_post_published_between(evening_start, evening_end)
+        if has_evening and post_info:
+            pub_time = post_info.get("published_at", "")
+            log.info(f"✅ [OK] Post noturno das 18:00 de hoje já foi publicado (Post #{post_info.get('id')} às {pub_time[:19]}).")
+        else:
+            log.warning("⚠️ [CATCH-UP] Horário noturno (18:00) já passou e NENHUM post foi enviado nesta janela!")
+            log.info("🚀 Executando post de recuperação noturno (Oração & Gratidão) agora...")
+            try:
+                run_pipeline(
+                    source=source,
+                    count=daily_count,
+                    make_video=make_video,
+                    publisher=publisher,
+                    dispatch_limit=daily_count,
+                    theme="evening",
+                )
+                log.info("✅ Post de recuperação noturno concluído com sucesso!")
+            except Exception as exc:
+                log.error(f"❌ Falha ao executar post de recuperação noturno: {exc}")
+        return
+
+    if now >= saint_eve_start:
+        tomorrow = today + timedelta(days=1)
+        has_saint, post_info = db.has_saint_post_for_date(tomorrow)
+        if not (has_saint and post_info and post_info.get("status") == "published"):
+            has_saint, post_info = db.has_post_published_between(saint_eve_start, saint_eve_end, source="saint")
+
+        if has_saint and post_info and post_info.get("status") == "published":
+            pub_time = post_info.get("published_at", "")
+            log.info(f"✅ [OK] Post do Santo da véspera ({tomorrow.strftime('%d/%m')}) já foi publicado (Post #{post_info.get('id')} às {pub_time[:19]}).")
+        else:
+            log.warning(f"⚠️ [CATCH-UP] Horário de véspera do Santo ({tomorrow.strftime('%d/%m')}) já passou e post não foi enviado!")
+            log.info("🚀 Executando post de Santo do Dia (Carrossel & Vídeo) agora...")
+            try:
+                run_saint_pipeline(
+                    target_date=tomorrow,
+                    publisher=publisher,
+                    make_video=make_video,
+                    dispatch=True
+                )
+                log.info("✅ Post do Santo do Dia concluído com sucesso!")
+            except Exception as exc:
+                log.error(f"❌ Falha ao executar post do Santo do Dia: {exc}")
+        return
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Bible Reels Content Automation Engine")
+    parser.add_argument("--all", action="store_true", help="Executa todo o pipeline")
+    parser.add_argument("--collect", action="store_true", help="Executa apenas etapa de coleta")
+    parser.add_argument("--process", action="store_true", help="Executa apenas etapa de processamento IA")
+    parser.add_argument("--media", action="store_true", help="Executa apenas renderização de mídia")
+    parser.add_argument("--dispatch", action="store_true", help="Dispara itens da fila de publicação")
+    parser.add_argument("--source", choices=["bible", "quotes", "both", "saint"], default="both", help="Origem dos dados")
+    parser.add_argument("--saint", action="store_true", help="Gera post completo do Santo do Dia (coleta, IA, arte e fila)")
+    parser.add_argument("--count", type=int, default=POSTS_PER_RUN, help="Quantidade de itens")
+    parser.add_argument("--no-video", action="store_true", help="Desativa renderização de vídeo MP4 (gera apenas imagem estática)")
+    parser.add_argument("--video", action="store_true", default=True, help="Gera vídeo MP4 dinâmico com narração (ativo por padrão)")
+    parser.add_argument("--publisher", choices=["all", "tiktok", "instagram_direct", "tiktok_direct", "webhook", "postproxy", "buffer"], default=DEFAULT_PUBLISHER, help="Canal de publicação")
+    parser.add_argument("--theme", choices=["morning", "midday", "evening", "general"], default="general", help="Tema do post (morning / midday / evening / general)")
+    parser.add_argument("--list-profiles", action="store_true", help="Lista perfis conectados no Postproxy")
+    parser.add_argument("--daemon", action="store_true", help="Executa em segundo plano com agendamento diário")
+
+    args = parser.parse_args()
+    make_video_eff = not args.no_video
+
+    if args.list_profiles:
+        list_postproxy_profiles()
+        return
+
+    db = DBManager(DB_PATH)
+
+    if args.daemon:
+        import schedule
+        daily_count = 1 if args.count == POSTS_PER_RUN else args.count
+        log.info("Iniciando modo Daemon com agendamento quádruplo diário (sempre em vídeo dinâmico):")
+        log.info(f"  🌅 06:30 -> Devocional Matinal & Oração do Dia (Vídeo dinâmico de versículo, {daily_count} post)")
+        log.info(f"  ☀️ 12:00 -> Palavra de Fé & Sabedoria (Vídeo dinâmico de versículo, {daily_count} post)")
+        log.info(f"  🌙 18:00 -> Oração da Noite, Gratidão e Paz (Vídeo dinâmico de versículo, {daily_count} post)")
+        log.info(f"  🕊️ 20:30 -> Santo do Dia (YouTube/TikTok às 20:30 + Instagram Reel às 06:00, {daily_count} post)")
+
+        # Agendamento das 06:30 (Matinal: Bênção do Dia & Devocional)
+        schedule.every().day.at("06:30").do(
+            run_pipeline,
+            source="bible",
+            count=daily_count,
+            make_video=make_video_eff,
+            publisher=args.publisher,
+            dispatch_limit=daily_count,
+            theme="morning"
+        )
+
+        # Agendamento das 12:00 (Meio-dia: Palavra de Fé & Sabedoria Bíblica)
+        schedule.every().day.at("12:00").do(
+            run_pipeline,
+            source="bible",
+            count=daily_count,
+            make_video=make_video_eff,
+            publisher=args.publisher,
+            dispatch_limit=daily_count,
+            theme="midday"
+        )
+
+        # Agendamento das 18:00 (Noturno: Gratidão, Fé e Paz)
+        schedule.every().day.at("18:00").do(
+            run_pipeline,
+            source=args.source,
+            count=daily_count,
+            make_video=make_video_eff,
+            publisher=args.publisher,
+            dispatch_limit=daily_count,
+            theme="evening"
+        )
+
+        # Agendamento das 20:30 (Véspera: Santo do Dia seguinte para indexação e oração da noite)
+        schedule.every().day.at("20:30").do(
+            run_pipeline,
+            source="saint",
+            count=daily_count,
+            make_video=make_video_eff,
+            publisher=args.publisher,
+            dispatch_limit=daily_count,
+            theme="morning"
+        )
+
+        # Executa verificação inicial de auto-recuperação (Catch-up)
+        check_and_catchup_missed_post(
+            db=db,
+            source=args.source,
+            make_video=make_video_eff,
+            publisher=args.publisher,
+            daily_count=daily_count,
+        )
+
+        while True:
+            schedule.run_pending()
+            time.sleep(30)
+
+    if args.saint:
+        run_saint_pipeline(publisher=args.publisher, make_video=make_video_eff, dispatch=args.dispatch)
+        return
+
+    if args.all or len(sys.argv) == 1:
+        run_pipeline(source=args.source, count=args.count, make_video=make_video_eff, publisher=args.publisher, theme=args.theme)
+        return
+
+    try:
+        if args.collect:
+            step_collect(db, source=args.source, count=args.count, theme=args.theme)
+        if args.process:
+            step_process(db, limit=args.count, publisher=args.publisher, theme=args.theme)
+        if args.media:
+            step_media(db, limit=args.count, make_video=make_video_eff)
+        if args.dispatch:
+            step_dispatch(db, platform=args.publisher, make_video=make_video_eff)
+    finally:
+        db.close()
+
+if __name__ == "__main__":
+    main()
