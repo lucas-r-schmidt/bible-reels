@@ -38,36 +38,40 @@ from src.utils.logger import get_logger
 
 log = get_logger("main")
 
-def step_collect(db: DBManager, source: str = "both", count: int = 5, theme: str = "general") -> None:
+def step_collect(db: DBManager, source: str = "both", count: int = 5, theme: str = "general") -> list[dict]:
     log.info(f"=== [1/4] Coleta de Conteúdo (Fonte: {source}, Meta: {count}, Tema: {theme}) ===")
+    collected_items: list[dict] = []
     if source == "both":
         if count == 1:
             # Alterna dinamicamente entre versículo e mensagem motivacional/reflexão
             chosen = random.choice(["bible", "quotes"])
             log.info(f"Fonte selecionada para este post: {chosen.upper()}")
             if chosen == "bible":
-                collect_verses(db, count=1, theme=theme)
+                collected_items = collect_verses(db, count=1, theme=theme)
             else:
-                collect_quotes(db, count=1, theme=theme)
+                collected_items = collect_quotes(db, count=1, theme=theme)
         else:
             c_bible = count // 2
             c_quotes = count - c_bible
-            collect_verses(db, count=c_bible, theme=theme)
-            collect_quotes(db, count=c_quotes, theme=theme)
+            collected_items = collect_verses(db, count=c_bible, theme=theme) + collect_quotes(db, count=c_quotes, theme=theme)
     elif source == "bible":
-        collect_verses(db, count=count, theme=theme)
+        collected_items = collect_verses(db, count=count, theme=theme)
     elif source == "quotes":
-        collect_quotes(db, count=count, theme=theme)
+        collected_items = collect_quotes(db, count=count, theme=theme)
     elif source in ("saint", "saints", "santo"):
         from datetime import date, timedelta
         # Publicação às 20:30 da véspera: busca o santo do dia seguinte!
         tomorrow = date.today() + timedelta(days=1)
-        collect_saint_of_day(db, target_date=tomorrow)
+        res = collect_saint_of_day(db, target_date=tomorrow)
+        if res and res.get("verse_id"):
+            collected_items = [{"id": res["verse_id"], "reference": res.get("name"), "source": "saint"}]
     elif source in ("gospel", "evangelho", "liturgia"):
         from datetime import date
-        collect_gospel_of_day(db, target_date=date.today())
+        res = collect_gospel_of_day(db, target_date=date.today())
+        if res and res.get("verse_id"):
+            collected_items = [{"id": res["verse_id"], "reference": res.get("reference"), "source": "gospel"}]
     elif source in ("prayer", "prayers", "oracao", "oracoes"):
-        collect_classic_prayers(db, count=count)
+        collected_items = collect_classic_prayers(db, count=count)
     elif source in ("community", "intercessao", "pedidos"):
         # Coleta pedidos de oração de seguidores
         recent = db.get_recent_prayer_requests(limit=10)
@@ -75,21 +79,28 @@ def step_collect(db: DBManager, source: str = "both", count: int = 5, theme: str
         if not db.verse_exists(c_hash):
             authors = [c.get("author_name") for c in recent if c.get("author_name")]
             names_preview = ", ".join(authors[:5]) if authors else "nossa comunidade"
-            db.insert_verse(
+            v_id = db.insert_verse(
                 source="community",
                 reference="Oração pelos Inscritos",
                 text=f"Momento de intercessão e bênção pelas famílias de {names_preview} e de todos os inscritos.",
                 content_hash=c_hash,
                 translation="Comunidade de Fé"
             )
+            collected_items = [{"id": v_id, "reference": "Oração pelos Inscritos", "source": "community"}]
+        else:
+            row = db.conn.execute("SELECT id, reference, source FROM verses WHERE hash = ?", (c_hash,)).fetchone()
+            if row:
+                collected_items = [dict(row)]
+    return collected_items
 
-def step_process(db: DBManager, limit: int = 5, publisher: str = DEFAULT_PUBLISHER, theme: str = "general", source: str | None = None) -> None:
+def step_process(db: DBManager, limit: int = 5, publisher: str = DEFAULT_PUBLISHER, theme: str = "general", source: str | None = None) -> list[int]:
     log.info(f"=== [2/4] Processamento com Gemini Flash (Limite: {limit}, Tema: {theme}) ===")
     unused = db.get_unused_verses(limit=limit, source=source)
     if not unused:
         log.info("Nenhum versículo pendente de formatação.")
-        return
+        return []
 
+    created_post_ids: list[int] = []
     for item in unused:
         log.info(f"Processando verso ID={item['id']}: {item['reference']} (Origem: {item.get('source')}, Tema: {theme})")
         if item.get("source") == "saint":
@@ -147,19 +158,29 @@ def step_process(db: DBManager, limit: int = 5, publisher: str = DEFAULT_PUBLISH
             caption=ai_data.get("caption", ""),
             hook_title=ai_data.get("hook_title", "")
         )
+        created_post_ids.append(post_id)
         # Enfileira para publicador configurado
         target_platform = publisher or DEFAULT_PUBLISHER
         db.enqueue(post_id, target_platform)
 
-def step_media(db: DBManager, limit: int = 5, make_video: bool = True) -> None:
-    log.info(f"=== [3/4] Geração de Mídia Dinâmica (Vídeo Multi-Cena & Carrossel, Limite: {limit}) ===")
-    pending_posts = db.get_pending_posts(limit=limit)
+    return created_post_ids
+
+def step_media(db: DBManager, limit: int = 5, make_video: bool = True, post_id: int | None = None) -> list[int]:
+    log.info(f"=== [3/4] Geração de Mídia Dinâmica (Vídeo Multi-Cena & Carrossel, Limite: {limit}, Post ID: {post_id or 'pendentes'}) ===")
+    if post_id:
+        cur_single = db.conn.execute("SELECT * FROM posts WHERE id = ?", (post_id,))
+        row_s = cur_single.fetchone()
+        pending_posts = [dict(row_s)] if row_s else []
+    else:
+        pending_posts = db.get_pending_posts(limit=limit)
+
     if not pending_posts:
         log.info("Nenhum post pendente de mídia.")
-        return
+        return []
 
+    rendered_post_ids: list[int] = []
     for post in pending_posts:
-        if post["image_path"] and not make_video:
+        if post["image_path"] and not make_video and not post_id:
             continue
 
         # Busca dados do verso original para referência
@@ -246,6 +267,9 @@ def step_media(db: DBManager, limit: int = 5, make_video: bool = True) -> None:
                 vid_path_str = str(vid_path)
 
         db.update_post_media(post["id"], str(img_path), vid_path_str)
+        rendered_post_ids.append(post["id"])
+
+    return rendered_post_ids
 
 def step_dispatch(db: DBManager, platform: str | None = None, limit: int = 10, make_video: bool = True, post_id: int | None = None) -> int:
     log.info(f"=== [4/4] Distribuição e Fila (Limite de envio: {limit}, Post ID: {post_id or 'todos'}) ===")

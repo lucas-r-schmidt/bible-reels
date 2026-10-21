@@ -873,11 +873,11 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-refresh-logs").addEventListener("click", loadLogs);
 
   document.getElementById("btn-action-collect")?.addEventListener("click", function() {
-    triggerAction("/api/actions/collect", { source: "both", count: 3 }, this, "Versos e citações coletados!");
+    triggerAction("/api/actions/collect", { source: "both", count: 1, full_pipeline: true }, this, "Verso coletado, formatado com IA e vídeo final renderizado!");
   });
 
   document.getElementById("btn-action-gospel")?.addEventListener("click", function() {
-    triggerAction("/api/actions/collect", { source: "gospel", count: 1 }, this, "Evangelho do Dia coletado da Canção Nova!");
+    triggerAction("/api/actions/collect", { source: "gospel", count: 1, full_pipeline: true }, this, "Evangelho do Dia: coleta, IA e vídeo completo renderizados!");
   });
 
   const btnSaint = document.getElementById("btn-action-saint");
@@ -889,11 +889,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   document.getElementById("btn-action-prayer")?.addEventListener("click", function() {
-    triggerAction("/api/actions/collect", { source: "prayer", count: 1 }, this, "Grande Oração Clássica coletada!");
+    triggerAction("/api/actions/collect", { source: "prayer", count: 1, full_pipeline: true }, this, "Oração Clássica: coleta, IA e vídeo completo renderizados!");
   });
 
   document.getElementById("btn-action-community")?.addEventListener("click", function() {
-    triggerAction("/api/actions/collect", { source: "community", count: 1 }, this, "Oração pelos Inscritos da Comunidade gerada!");
+    triggerAction("/api/actions/collect", { source: "community", count: 1, full_pipeline: true }, this, "Oração dos Inscritos: gerada, formatada com IA e vídeo renderizado!");
   });
 
   document.getElementById("btn-action-process").addEventListener("click", function() {

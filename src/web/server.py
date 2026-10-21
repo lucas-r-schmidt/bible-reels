@@ -385,8 +385,35 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
         try:
             if path == "/api/actions/collect":
                 source = data.get("source", "both")
-                count = int(data.get("count", 3))
+                count = int(data.get("count", 1))
                 theme = data.get("theme", "general")
+                pub = data.get("publisher") or DEFAULT_PUBLISHER
+                full_pipeline = bool(data.get("full_pipeline", False))
+
+                if full_pipeline:
+                    from main import step_collect, step_process, step_media
+                    if source in ("saint", "santo"):
+                        from main import run_saint_pipeline
+                        run_saint_pipeline(publisher=pub, make_video=True, dispatch=False)
+                        self._send_json({"success": True, "message": "Pipeline do Santo do Dia executado até a renderização do vídeo final!"})
+                        return
+
+                    collected = step_collect(db, source=source, count=count, theme=theme)
+                    post_ids = step_process(db, limit=count, publisher=pub, theme=theme, source=source if source != "both" else None)
+                    rendered = []
+                    if post_ids:
+                        for pid in post_ids:
+                            step_media(db, limit=1, make_video=True, post_id=pid)
+                            rendered.append(pid)
+                    else:
+                        rendered = step_media(db, limit=count, make_video=True)
+                    self._send_json({
+                        "success": True,
+                        "message": f"Pipeline concluído! {len(rendered)} vídeo(s) gerado(s) e adicionado(s) à fila.",
+                        "rendered_post_ids": rendered
+                    })
+                    return
+
                 if source in ("saint", "santo"):
                     collect_saint_of_day(db)
                 elif source in ("gospel", "evangelho", "liturgia"):
