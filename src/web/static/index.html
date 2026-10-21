@@ -84,23 +84,26 @@
         <button id="btn-action-collect" class="btn btn-secondary">
           <span>📥</span> Coletar Versos
         </button>
+        <button id="btn-action-gospel" class="btn btn-secondary" style="border-color: rgba(56, 189, 248, 0.5); color: #7dd3fc;">
+          <span>📜</span> Evangelho de Hoje
+        </button>
         <button id="btn-action-saint" class="btn btn-secondary" style="border-color: rgba(212, 175, 55, 0.5); color: #fef08a;">
-          <span>🕊️</span> Santo do Dia & Agendamento
+          <span>🕊️</span> Santo do Dia
+        </button>
+        <button id="btn-action-prayer" class="btn btn-secondary" style="border-color: rgba(168, 85, 247, 0.5); color: #d8b4fe;">
+          <span>🙏</span> Oração Clássica
+        </button>
+        <button id="btn-action-community" class="btn btn-secondary" style="border-color: rgba(52, 211, 153, 0.5); color: #a7f3d0;">
+          <span>🤝</span> Oração dos Inscritos
         </button>
         <button id="btn-action-process" class="btn btn-secondary">
-          <span>🤖</span> Formatar com Gemini
-        </button>
-        <button id="btn-action-media-img" class="btn btn-secondary">
-          <span>🎨</span> Gerar Imagens 9:16
+          <span>🤖</span> Formatar com IA
         </button>
         <button id="btn-action-media-vid" class="btn btn-secondary">
-          <span>🎥</span> Renderizar Vídeos MP4
+          <span>🎥</span> Renderizar Vídeos
         </button>
         <button id="btn-action-dispatch" class="btn btn-primary">
           <span>🚀</span> Disparar Fila
-        </button>
-        <button id="btn-action-full" class="btn btn-accent">
-          <span>⚡</span> Executar Pipeline Completo
         </button>
       </div>
     </section>
@@ -126,12 +129,24 @@
       <div class="feed-filter-bar">
         <div class="filter-pills" id="feed-filter-pills">
           <button class="filter-pill active" data-filter="scriptures" id="filter-btn-scriptures">
-            <span>📖 Somente Escrituras</span>
+            <span>📖 Escrituras</span>
             <span class="filter-count" id="count-scriptures">0</span>
+          </button>
+          <button class="filter-pill" data-filter="gospel" id="filter-btn-gospel">
+            <span>📜 Evangelho</span>
+            <span class="filter-count" id="count-gospel">0</span>
           </button>
           <button class="filter-pill" data-filter="saints" id="filter-btn-saints">
             <span>🕊️ Santo do Dia</span>
             <span class="filter-count" id="count-saints">0</span>
+          </button>
+          <button class="filter-pill" data-filter="prayers" id="filter-btn-prayers">
+            <span>🙏 Orações</span>
+            <span class="filter-count" id="count-prayers">0</span>
+          </button>
+          <button class="filter-pill" data-filter="community" id="filter-btn-community">
+            <span>🤝 Comunidade</span>
+            <span class="filter-count" id="count-community">0</span>
           </button>
           <button class="filter-pill" data-filter="all" id="filter-btn-all">
             <span>📚 Todos</span>

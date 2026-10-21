@@ -198,6 +198,10 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                 pending_count = db.conn.execute("SELECT COUNT(*) FROM queue WHERE status = 'pending'").fetchone()[0]
                 sent_count = db.conn.execute("SELECT COUNT(*) FROM queue WHERE status = 'sent'").fetchone()[0]
                 failed_count = db.conn.execute("SELECT COUNT(*) FROM queue WHERE status = 'failed'").fetchone()[0]
+                gospel_count = db.conn.execute("SELECT COUNT(*) FROM posts p JOIN verses v ON v.id = p.verse_id WHERE v.source = 'gospel'").fetchone()[0]
+                saints_count = db.conn.execute("SELECT COUNT(*) FROM posts p JOIN verses v ON v.id = p.verse_id WHERE v.source = 'saint'").fetchone()[0]
+                prayers_count = db.conn.execute("SELECT COUNT(*) FROM posts p JOIN verses v ON v.id = p.verse_id WHERE v.source = 'prayer'").fetchone()[0]
+                community_count = db.conn.execute("SELECT COUNT(*) FROM posts p JOIN verses v ON v.id = p.verse_id WHERE v.source = 'community'").fetchone()[0]
 
                 from dotenv import load_dotenv
                 load_dotenv(ROOT_DIR / ".env", override=True)
@@ -211,6 +215,10 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                     "queue_pending": pending_count,
                     "queue_sent": sent_count,
                     "queue_failed": failed_count,
+                    "count_gospel": gospel_count,
+                    "count_saints": saints_count,
+                    "count_prayers": prayers_count,
+                    "count_community": community_count,
                     "default_publisher": active_pub,
                     "webhook_configured": bool(os.getenv("WEBHOOK_URL")),
                     "instagram_configured": bool(ig_user and ig_pass),
@@ -239,9 +247,15 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                     where_clauses.append("p.status = 'published'")
 
                 if type_filter in ("scripture", "scriptures", "bible", "versiculo", "versiculos"):
-                    where_clauses.append("v.source != 'saint'")
+                    where_clauses.append("v.source IN ('bible', 'bible_api', 'quotes', 'local_quotes')")
                 elif type_filter in ("saint", "saints", "santo", "santos"):
                     where_clauses.append("v.source = 'saint'")
+                elif type_filter in ("gospel", "evangelho", "liturgia"):
+                    where_clauses.append("v.source = 'gospel'")
+                elif type_filter in ("prayer", "prayers", "oracao", "oracoes"):
+                    where_clauses.append("v.source = 'prayer'")
+                elif type_filter in ("community", "intercessao", "pedidos"):
+                    where_clauses.append("v.source = 'community'")
 
                 if where_clauses:
                     query += " WHERE " + " AND ".join(where_clauses)
@@ -254,9 +268,18 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                 posts = []
                 for r in rows:
                     item = dict(r)
+                    v_source = item.get("verse_source") or ""
                     ref_lower = (item.get("reference") or "").lower()
-                    is_saint = item.get("verse_source") == "saint" or any(s in ref_lower for s in ("santo", "santa", "nossa senhora"))
-                    item["content_type"] = "saint" if is_saint else "scripture"
+                    if v_source == "saint" or any(s in ref_lower for s in ("santo", "santa", "nossa senhora")):
+                        item["content_type"] = "saint"
+                    elif v_source == "gospel" or "evangelho" in ref_lower:
+                        item["content_type"] = "gospel"
+                    elif v_source == "prayer" or "oração" in ref_lower or "oracao" in ref_lower:
+                        item["content_type"] = "prayer"
+                    elif v_source == "community":
+                        item["content_type"] = "community"
+                    else:
+                        item["content_type"] = "scripture"
 
                     # Converte caminhos locais para URLs servidas
                     img_path = item.get("image_path") or ""

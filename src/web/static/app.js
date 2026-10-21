@@ -137,15 +137,30 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!currentPosts) return;
     const total = currentPosts.length;
     const scriptures = currentPosts.filter(p => p.content_type === "scripture").length;
+    const gospel = currentPosts.filter(p => p.content_type === "gospel").length;
     const saints = currentPosts.filter(p => p.content_type === "saint").length;
+    const prayers = currentPosts.filter(p => p.content_type === "prayer").length;
+    const community = currentPosts.filter(p => p.content_type === "community").length;
     const unpub = currentPosts.filter(p => p.status !== "published").length;
     const pub = currentPosts.filter(p => p.status === "published").length;
 
-    if (countScriptures) countScriptures.textContent = scriptures;
-    if (countSaints) countSaints.textContent = saints;
-    if (countAll) countAll.textContent = total;
-    if (countUnpublished) countUnpublished.textContent = unpub;
-    if (countPublished) countPublished.textContent = pub;
+    const elScriptures = document.getElementById("count-scriptures");
+    const elGospel = document.getElementById("count-gospel");
+    const elSaints = document.getElementById("count-saints");
+    const elPrayers = document.getElementById("count-prayers");
+    const elCommunity = document.getElementById("count-community");
+    const elAll = document.getElementById("count-all");
+    const elUnpub = document.getElementById("count-unpublished");
+    const elPub = document.getElementById("count-published");
+
+    if (elScriptures) elScriptures.textContent = scriptures;
+    if (elGospel) elGospel.textContent = gospel;
+    if (elSaints) elSaints.textContent = saints;
+    if (elPrayers) elPrayers.textContent = prayers;
+    if (elCommunity) elCommunity.textContent = community;
+    if (elAll) elAll.textContent = total;
+    if (elUnpub) elUnpub.textContent = unpub;
+    if (elPub) elPub.textContent = pub;
   }
 
   function renderPosts() {
@@ -164,9 +179,18 @@ document.addEventListener("DOMContentLoaded", () => {
     if (currentFilter === "scriptures") {
       filtered = currentPosts.filter(p => p.content_type === "scripture");
       if (filterStatusText) filterStatusText.textContent = `Mostrando ${filtered.length} passagem(ns) da Escritura Sagrada`;
+    } else if (currentFilter === "gospel") {
+      filtered = currentPosts.filter(p => p.content_type === "gospel");
+      if (filterStatusText) filterStatusText.textContent = `Mostrando ${filtered.length} Evangelho(s) do Dia`;
     } else if (currentFilter === "saints") {
       filtered = currentPosts.filter(p => p.content_type === "saint");
       if (filterStatusText) filterStatusText.textContent = `Mostrando ${filtered.length} post(s) do Santo do Dia`;
+    } else if (currentFilter === "prayers") {
+      filtered = currentPosts.filter(p => p.content_type === "prayer");
+      if (filterStatusText) filterStatusText.textContent = `Mostrando ${filtered.length} Grande(s) Oração(ões) Clássica(s)`;
+    } else if (currentFilter === "community") {
+      filtered = currentPosts.filter(p => p.content_type === "community");
+      if (filterStatusText) filterStatusText.textContent = `Mostrando ${filtered.length} Oração(ões) pelos Inscritos da Comunidade`;
     } else if (currentFilter === "unpublished") {
       filtered = currentPosts.filter(p => p.status !== "published");
       if (filterStatusText) filterStatusText.textContent = `Mostrando ${filtered.length} post(s) ainda não publicado(s)`;
@@ -203,9 +227,20 @@ document.addEventListener("DOMContentLoaded", () => {
       const badgeClass = post.status === "published" ? "badge-published" : post.status === "failed" ? "badge-failed" : isScheduled ? "badge-scheduled" : "badge-created";
       const badgeText = post.status === "published" ? "✓ Publicado" : post.status === "failed" ? "✗ Falha" : isScheduled ? "⏰ Agendado" : "Pronto";
       const isSaint = post.content_type === "saint";
-      const typeBadgeHtml = isSaint
-        ? `<span style="position: absolute; top: 12px; left: 12px; font-size: 0.72rem; padding: 3px 8px; border-radius: 9999px; background: rgba(212, 175, 55, 0.9); color: #000; font-weight: 700; z-index: 5; box-shadow: 0 2px 6px rgba(0,0,0,0.4);">🕊️ SANTO DO DIA</span>`
-        : `<span style="position: absolute; top: 12px; left: 12px; font-size: 0.72rem; padding: 3px 8px; border-radius: 9999px; background: rgba(59, 130, 246, 0.9); color: #fff; font-weight: 700; z-index: 5; box-shadow: 0 2px 6px rgba(0,0,0,0.4);">📖 ESCRITURA</span>`;
+      const isGospel = post.content_type === "gospel";
+      const isPrayer = post.content_type === "prayer";
+      const isCommunity = post.content_type === "community";
+
+      let typeBadgeHtml = `<span style="position: absolute; top: 12px; left: 12px; font-size: 0.72rem; padding: 3px 8px; border-radius: 9999px; background: rgba(59, 130, 246, 0.9); color: #fff; font-weight: 700; z-index: 5; box-shadow: 0 2px 6px rgba(0,0,0,0.4);">📖 ESCRITURA</span>`;
+      if (isSaint) {
+        typeBadgeHtml = `<span style="position: absolute; top: 12px; left: 12px; font-size: 0.72rem; padding: 3px 8px; border-radius: 9999px; background: rgba(212, 175, 55, 0.9); color: #000; font-weight: 700; z-index: 5; box-shadow: 0 2px 6px rgba(0,0,0,0.4);">🕊️ SANTO DO DIA</span>`;
+      } else if (isGospel) {
+        typeBadgeHtml = `<span style="position: absolute; top: 12px; left: 12px; font-size: 0.72rem; padding: 3px 8px; border-radius: 9999px; background: rgba(56, 189, 248, 0.9); color: #000; font-weight: 700; z-index: 5; box-shadow: 0 2px 6px rgba(0,0,0,0.4);">📜 EVANGELHO</span>`;
+      } else if (isPrayer) {
+        typeBadgeHtml = `<span style="position: absolute; top: 12px; left: 12px; font-size: 0.72rem; padding: 3px 8px; border-radius: 9999px; background: rgba(168, 85, 247, 0.9); color: #fff; font-weight: 700; z-index: 5; box-shadow: 0 2px 6px rgba(0,0,0,0.4);">🙏 ORAÇÃO</span>`;
+      } else if (isCommunity) {
+        typeBadgeHtml = `<span style="position: absolute; top: 12px; left: 12px; font-size: 0.72rem; padding: 3px 8px; border-radius: 9999px; background: rgba(52, 211, 153, 0.9); color: #000; font-weight: 700; z-index: 5; box-shadow: 0 2px 6px rgba(0,0,0,0.4);">🤝 COMUNIDADE</span>`;
+      }
 
       let mediaSlotHtml = "";
       if (post.is_carousel && post.video_url) {
@@ -837,8 +872,12 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-refresh").addEventListener("click", refreshAll);
   document.getElementById("btn-refresh-logs").addEventListener("click", loadLogs);
 
-  document.getElementById("btn-action-collect").addEventListener("click", function() {
+  document.getElementById("btn-action-collect")?.addEventListener("click", function() {
     triggerAction("/api/actions/collect", { source: "both", count: 3 }, this, "Versos e citações coletados!");
+  });
+
+  document.getElementById("btn-action-gospel")?.addEventListener("click", function() {
+    triggerAction("/api/actions/collect", { source: "gospel", count: 1 }, this, "Evangelho do Dia coletado da Canção Nova!");
   });
 
   const btnSaint = document.getElementById("btn-action-saint");
@@ -848,6 +887,14 @@ document.addEventListener("DOMContentLoaded", () => {
       saintModal?.classList.add("active");
     });
   }
+
+  document.getElementById("btn-action-prayer")?.addEventListener("click", function() {
+    triggerAction("/api/actions/collect", { source: "prayer", count: 1 }, this, "Grande Oração Clássica coletada!");
+  });
+
+  document.getElementById("btn-action-community")?.addEventListener("click", function() {
+    triggerAction("/api/actions/collect", { source: "community", count: 1 }, this, "Oração pelos Inscritos da Comunidade gerada!");
+  });
 
   document.getElementById("btn-action-process").addEventListener("click", function() {
     triggerAction("/api/actions/process", { limit: 3 }, this, "Versículos formatados com IA!");
