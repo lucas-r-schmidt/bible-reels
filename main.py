@@ -23,11 +23,12 @@ from pathlib import Path
 
 from config.settings import DB_PATH, POSTS_PER_RUN, DEFAULT_PUBLISHER, OUTPUT_IMAGES, OUTPUT_VIDEOS
 from src.collector.bible_api import collect_verses
-from src.collector.local_quotes import collect_quotes
-from src.collector.saints import collect_saint_of_day, get_saint_for_date, get_saint_image
+from src.collector.local_quotes import collect_quotes, collect_classic_prayers
+from src.collector.liturgy import collect_gospel_of_day, collect_psalm_of_day
+from src.collector.saints import collect_saint_of_day, get_saint_for_date, get_saint_image, check_active_novena
 from src.media_gen.image_builder import generate_post_image
 from src.media_gen.video_builder import generate_video_from_image
-from src.processor.ai_formatter import format_verse, format_saint_post
+from src.processor.ai_formatter import format_verse, format_saint_post, format_gospel_post, format_community_prayer_post
 from src.processor.db_manager import DBManager
 from src.publisher.postproxy import PostproxyPublisher, publish_via_postproxy
 from src.publisher.webhook import publish_via_webhook
@@ -62,6 +63,25 @@ def step_collect(db: DBManager, source: str = "both", count: int = 5, theme: str
         # Publicação às 20:30 da véspera: busca o santo do dia seguinte!
         tomorrow = date.today() + timedelta(days=1)
         collect_saint_of_day(db, target_date=tomorrow)
+    elif source in ("gospel", "evangelho", "liturgia"):
+        from datetime import date
+        collect_gospel_of_day(db, target_date=date.today())
+    elif source in ("prayer", "prayers", "oracao", "oracoes"):
+        collect_classic_prayers(db, count=count)
+    elif source in ("community", "intercessao", "pedidos"):
+        # Coleta pedidos de oração de seguidores
+        recent = db.get_recent_prayer_requests(limit=10)
+        c_hash = f"community_prayer_{date.today().isoformat()}"
+        if not db.verse_exists(c_hash):
+            authors = [c.get("author_name") for c in recent if c.get("author_name")]
+            names_preview = ", ".join(authors[:5]) if authors else "nossa comunidade"
+            db.insert_verse(
+                source="community",
+                reference="Oração pelos Inscritos",
+                text=f"Momento de intercessão e bênção pelas famílias de {names_preview} e de todos os inscritos.",
+                content_hash=c_hash,
+                translation="Comunidade de Fé"
+            )
 
 def step_process(db: DBManager, limit: int = 5, publisher: str = DEFAULT_PUBLISHER, theme: str = "general", source: str | None = None) -> None:
     log.info(f"=== [2/4] Processamento com Gemini Flash (Limite: {limit}, Tema: {theme}) ===")
@@ -81,6 +101,11 @@ def step_process(db: DBManager, limit: int = 5, publisher: str = DEFAULT_PUBLISH
                 target_d = date(date.today().year, int(date_match.group(2)), int(date_match.group(1)))
             saint_meta = get_saint_for_date(target_d)
             ai_data = format_saint_post(item["reference"], item["text"], saint_metadata=saint_meta, is_eve=True)
+        elif item.get("source") == "gospel":
+            ai_data = format_gospel_post(item["reference"], item["text"], celebration=item.get("translation", ""))
+        elif item.get("source") == "community":
+            recent = db.get_recent_prayer_requests(limit=10)
+            ai_data = format_community_prayer_post(recent)
         else:
             try:
                 ai_data = format_verse(item["reference"], item["text"], theme=theme)
@@ -185,7 +210,7 @@ def step_media(db: DBManager, limit: int = 5, make_video: bool = True) -> None:
                 post_id=post["id"],
                 text=post["formatted_text"],
                 reference=ref,
-                badge_text=None,
+                badge_text="EVANGELHO DO DIA" if source == "gospel" else ("ORAÇÃO DA COMUNIDADE" if source == "community" else None),
                 bg_image_path=bg_img
             )
             hook_title = post.get("hook_title") or ""
@@ -199,12 +224,20 @@ def step_media(db: DBManager, limit: int = 5, make_video: bool = True) -> None:
             )
             vid_target = verse_scenes[0] if verse_scenes else img_path
             slides_for_video = verse_scenes
-            from src.media_gen.tts import build_verse_narration_text
-            narration_text = build_verse_narration_text(
-                post["formatted_text"],
-                reference=ref,
-                hook_title=hook_title
-            )
+            if source == "gospel":
+                from src.media_gen.tts import build_gospel_narration_text
+                narration_text = build_gospel_narration_text(
+                    reference=ref,
+                    text=post["formatted_text"],
+                    homily_reflection=post.get("hook_title", "")
+                )
+            else:
+                from src.media_gen.tts import build_verse_narration_text
+                narration_text = build_verse_narration_text(
+                    post["formatted_text"],
+                    reference=ref,
+                    hook_title=hook_title
+                )
 
         vid_path_str = ""
         if make_video:
@@ -638,13 +671,16 @@ def main() -> None:
     parser.add_argument("--process", action="store_true", help="Executa apenas etapa de processamento IA")
     parser.add_argument("--media", action="store_true", help="Executa apenas renderização de mídia")
     parser.add_argument("--dispatch", action="store_true", help="Dispara itens da fila de publicação")
-    parser.add_argument("--source", choices=["bible", "quotes", "both", "saint"], default="both", help="Origem dos dados")
+    parser.add_argument("--source", choices=["bible", "quotes", "both", "saint", "gospel", "prayer", "community"], default="both", help="Origem dos dados")
     parser.add_argument("--saint", action="store_true", help="Gera post completo do Santo do Dia (coleta, IA, arte e fila)")
+    parser.add_argument("--gospel", action="store_true", help="Gera post do Evangelho do Dia (liturgia diária oficial)")
+    parser.add_argument("--prayer", action="store_true", help="Gera post de Grandes Orações e Salmos clássicos")
+    parser.add_argument("--community", action="store_true", help="Gera post de Oração Comunitária com nomes de inscritos")
     parser.add_argument("--count", type=int, default=POSTS_PER_RUN, help="Quantidade de itens")
     parser.add_argument("--no-video", action="store_true", help="Desativa renderização de vídeo MP4 (gera apenas imagem estática)")
     parser.add_argument("--video", action="store_true", default=True, help="Gera vídeo MP4 dinâmico com narração (ativo por padrão)")
     parser.add_argument("--publisher", choices=["all", "tiktok", "instagram_direct", "tiktok_direct", "webhook", "postproxy", "buffer"], default=DEFAULT_PUBLISHER, help="Canal de publicação")
-    parser.add_argument("--theme", choices=["morning", "midday", "evening", "general"], default="general", help="Tema do post (morning / midday / evening / general)")
+    parser.add_argument("--theme", choices=["morning", "midday", "evening", "general", "ansiedade", "cansaco", "medo", "familia", "esperanca", "cura", "sunday_blessing"], default="general", help="Tema ou dor emocional do post")
     parser.add_argument("--list-profiles", action="store_true", help="Lista perfis conectados no Postproxy")
     parser.add_argument("--daemon", action="store_true", help="Executa em segundo plano com agendamento diário")
 
@@ -666,16 +702,17 @@ def main() -> None:
         log.info(f"  🌙 18:00 -> Oração da Noite, Gratidão e Paz (Vídeo dinâmico de versículo, {daily_count} post)")
         log.info(f"  🕊️ 20:30 -> Santo do Dia (YouTube/TikTok às 20:30 + Instagram Reel às 06:00, {daily_count} post)")
 
-        # Agendamento das 06:30 (Matinal: Bênção do Dia & Devocional)
-        schedule.every().day.at("06:30").do(
-            run_pipeline,
-            source="bible",
-            count=daily_count,
-            make_video=make_video_eff,
-            publisher=args.publisher,
-            dispatch_limit=daily_count,
-            theme="morning"
-        )
+        # Agendamento das 06:30 (Matinal: Domingo = Bênção da Semana, Segunda a Sábado = Evangelho do Dia)
+        def _morning_job():
+            is_sunday = (datetime.now().weekday() == 6)
+            if is_sunday:
+                log.info("🌅 Especial de Domingo: Bênção da Semana e Consagração da Família")
+                run_pipeline(source="bible", count=daily_count, make_video=make_video_eff, publisher=args.publisher, dispatch_limit=daily_count, theme="sunday_blessing")
+            else:
+                log.info("🌅 Matinal Oficial: Evangelho do Dia (Liturgia Diária CNBB)")
+                run_pipeline(source="gospel", count=daily_count, make_video=make_video_eff, publisher=args.publisher, dispatch_limit=daily_count, theme="morning")
+
+        schedule.every().day.at("06:30").do(_morning_job)
 
         # Agendamento das 12:00 (Meio-dia: Palavra de Fé & Sabedoria Bíblica)
         schedule.every().day.at("12:00").do(
@@ -725,6 +762,18 @@ def main() -> None:
 
     if args.saint:
         run_saint_pipeline(publisher=args.publisher, make_video=make_video_eff, dispatch=args.dispatch)
+        return
+
+    if args.gospel:
+        run_pipeline(source="gospel", count=1, make_video=make_video_eff, publisher=args.publisher, theme="morning")
+        return
+
+    if args.prayer:
+        run_pipeline(source="prayer", count=1, make_video=make_video_eff, publisher=args.publisher, theme="evening")
+        return
+
+    if args.community:
+        run_pipeline(source="community", count=1, make_video=make_video_eff, publisher=args.publisher, theme="evening")
         return
 
     if args.all or len(sys.argv) == 1:

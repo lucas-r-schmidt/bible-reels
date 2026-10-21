@@ -56,6 +56,40 @@ EVENING_VERSES: list[str] = [
     "Salmos 86:15", "Salmos 107:1", "Salmos 136:1", "Lamentações 3:25-26"
 ]
 
+# Pools especializados para 'Palavra para o seu Momento' (Dores Humanas Reais)
+EMOTIONAL_POOLS: dict[str, list[str]] = {
+    "ansiedade": [
+        "Filipenses 4:6-7", "1 Pedro 5:7", "Mateus 6:34", "Salmos 94:19",
+        "Salmos 55:22", "João 14:27", "Salmos 56:3", "Provérbios 12:25",
+        "Isaías 35:4", "Salmos 119:165", "Salmos 46:1-3"
+    ],
+    "cansaco": [
+        "Mateus 11:28", "Isaías 40:29", "Isaías 40:31", "Salmos 23:1-3",
+        "Gálatas 6:9", "Salmos 73:26", "2 Coríntios 12:9", "Salmos 127:2",
+        "Jeremias 31:25", "Salmos 61:2"
+    ],
+    "medo": [
+        "Josué 1:9", "Isaías 41:10", "Salmos 27:1", "2 Timóteo 1:7",
+        "Salmos 23:4", "Salmos 34:4", "Deuteronômio 31:6", "Salmos 118:6",
+        "Romanos 8:31", "Salmos 46:1-2"
+    ],
+    "familia": [
+        "Josué 24:15", "Salmos 128:1-4", "Salmos 127:1", "Provérbios 22:6",
+        "Colossenses 3:13-14", "Efésios 4:31-32", "1 Coríntios 13:4-7",
+        "Salmos 133:1", "Provérbios 14:1", "1 Pedro 4:8"
+    ],
+    "esperanca": [
+        "Jeremias 29:11", "Romanos 15:13", "Lamentações 3:24-26", "Salmos 42:11",
+        "Hebreus 11:1", "Salmos 130:5", "Isaías 43:18-19", "Romanos 8:28",
+        "Salmos 33:20-22", "Salmos 146:5"
+    ],
+    "cura": [
+        "Salmos 103:2-3", "Salmos 147:3", "Jeremias 17:14", "Isaías 53:5",
+        "Salmos 41:3", "Êxodo 23:25", "Tiago 5:14-15", "Salmos 30:2",
+        "Jeremias 33:6", "Mateus 9:22"
+    ]
+}
+
 POPULAR_VERSES: list[str] = MORNING_VERSES + EVENING_VERSES
 
 
@@ -125,7 +159,9 @@ def collect_verses(db: DBManager, count: int = 5, theme: str = "general") -> lis
     collected: list[dict] = []
     attempts = 0
 
-    if theme == "morning":
+    if theme in EMOTIONAL_POOLS:
+        pool = list(EMOTIONAL_POOLS[theme])
+    elif theme == "morning":
         pool = list(MORNING_VERSES)
     elif theme == "evening":
         pool = list(EVENING_VERSES)

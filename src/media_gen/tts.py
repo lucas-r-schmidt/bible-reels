@@ -348,3 +348,54 @@ def build_verse_narration_text(
     full = " ".join([p for p in narration_parts if p]).strip()
     full = re.sub(r"\s+", " ", full)
     return full
+
+
+def build_gospel_narration_text(
+    reference: str,
+    text: str,
+    homily_reflection: str = "",
+    celebration: str = ""
+) -> str:
+    """
+    Constrói o texto da narração solene para o Evangelho do Dia:
+    1. Abertura solene: "Proclamação do Evangelho de Jesus Cristo segundo... Glória a Vós, Senhor."
+    2. Texto do Evangelho
+    3. Conclusão: "Palavra da Salvação. Glória a Vós, Senhor."
+    4. Homilia / Aplicação prática
+    5. CTA devocional
+    """
+    # Detecta evangelista a partir da referência (ex: Lc 12,39-48 -> Lucas)
+    ref_clean = reference.lower()
+    evangelist = "São Mateus"
+    if "lc" in ref_clean or "lucas" in ref_clean:
+        evangelist = "São Lucas"
+    elif "mc" in ref_clean or "marcos" in ref_clean:
+        evangelist = "São Marcos"
+    elif "jo" in ref_clean or "joão" in ref_clean or "joao" in ref_clean:
+        evangelist = "São João"
+    elif "mt" in ref_clean or "mateus" in ref_clean:
+        evangelist = "São Mateus"
+
+    spoken_ref = convert_biblical_references(reference)
+    clean_body = clean_text_for_speech(text)
+
+    parts = [
+        f"Evangelho do Dia. {spoken_ref}.",
+        f"Proclamação do Evangelho de Jesus Cristo segundo {evangelist}.",
+        "Glória a Vós, Senhor.",
+        "[PAUSE:1.2]",
+        clean_body,
+        "[PAUSE:1.0]",
+        "Palavra da Salvação. Glória a Vós, Senhor.",
+    ]
+
+    if homily_reflection and homily_reflection.strip():
+        parts.append("[PAUSE:1.2]")
+        parts.append(f"Reflexão do dia: {clean_text_for_speech(homily_reflection)}")
+
+    parts.append("[PAUSE:1.5]")
+    parts.append("Que a Palavra de Deus frutifique em seu coração. Deixe seu Amém, compartilhe a Boa Nova e siga nossa página para acompanhar o Evangelho diário.")
+
+    full = " ".join(parts).strip()
+    return re.sub(r"\s+", " ", full)
+

@@ -4,7 +4,9 @@
     "title": "Padroeira e Rainha do Brasil",
     "quote": "Sob a vossa proteção nos refugiamos, ó Santa Mãe de Deus. Não desprezeis as nossas súplicas em nossas necessidades.",
     "prayer": "Ó incomparável Senhora da Conceição Aparecida, Mãe de Deus e nossa Mãe, protegei o nosso Brasil, abençoai nossas famílias e derramai vossas graças sobre cada um de nós. Amém.",
-    "history": "Em outubro de 1717, três humildes pescadores no Rio Paraíba do Sul retiraram das águas a imagem quebrada de Nossa Senhora da Conceição — primeiro o corpo, depois a cabeça. Em seguida, suas redes encheram-se milagrosamente de peixes. A devoção à Virgem Negra floresceu como símbolo de esperança, amor maternal e proteção do povo brasileiro."
+    "history": "Em outubro de 1717, três humildes pescadores no Rio Paraíba do Sul retiraram das águas a imagem quebrada de Nossa Senhora da Conceição — primeiro o corpo, depois a cabeça. Em seguida, suas redes encheram-se milagrosamente de peixes. A devoção à Virgem Negra floresceu como símbolo de esperança, amor maternal e proteção do povo brasileiro.",
+    "major_feast": true,
+    "has_novena": true
   },
   "10-13": {
     "name": "Nossa Senhora de Fátima",
@@ -25,28 +27,36 @@
     "title": "Patrono da Paz e da Criação",
     "quote": "Senhor, fazei-me instrumento de vossa paz. Onde houver ódio, que eu leve o amor.",
     "prayer": "Senhor Jesus, ensinai-nos a amar toda a criação com a simplicidade e a pureza de São Francisco de Assis. Fazei de nós mensageiros de concórdia e caridade. Amém.",
-    "history": "Nascido em Assis no século XII, Francisco renunciou à nobreza e aos bens materiais para abraçar a 'Dama Pobreza'. Fundou a Ordem dos Franciscanos, pregou a reconciliação e o respeito fraterno a todas as criaturas de Deus."
+    "history": "Nascido em Assis no século XII, Francisco renunciou à nobreza e aos bens materiais para abraçar a 'Dama Pobreza'. Fundou a Ordem dos Franciscanos, pregou a reconciliação e o respeito fraterno a todas as criaturas de Deus.",
+    "major_feast": true,
+    "has_novena": true
   },
   "10-01": {
     "name": "Santa Teresinha do Menino Jesus",
     "title": "Doutora da Igreja e Padroeira das Missões",
     "quote": "Compreendi que o amor encerra todas as vocações, que o amor é tudo.",
     "prayer": "Santa Teresinha, derramai do Céu uma chuva de rosas sobre nossas vidas e ensinai-nos o vosso caminho de confiança total no amor de Deus. Amém.",
-    "history": "Marie-Françoise-Thérèse Martin entrou no Carmelo de Lisieux aos 15 anos. Viveu a 'Pequena Via', que consiste em realizar com amor extraordinário até os menores gestos cotidianos oferecidos a Deus."
+    "history": "Marie-Françoise-Thérèse Martin entrou no Carmelo de Lisieux aos 15 anos. Viveu a 'Pequena Via', que consiste em realizar com amor extraordinário até os menores gestos cotidianos oferecidos a Deus.",
+    "major_feast": true,
+    "has_novena": true
   },
   "10-28": {
     "name": "São Judas Tadeu",
     "title": "Apóstolo e Patrono das Causas Aflitas e Desesperadas",
     "quote": "Mantende-vos no amor de Deus, esperando a misericórdia de nosso Senhor Jesus Cristo.",
     "prayer": "São Judas Tadeu, apóstolo fiel e patrono dos aflitos, rogai por nós nas causas mais difíceis e alcançai-nos a bênção da perseverança na fé. Amém.",
-    "history": "Primo de Jesus e mártir da fé, São Judas Tadeu percorreu a Mesopotâmia e a Pérsia anunciando o Evangelho com fidelidade heroica. Sua intercessão é invocada mundialmente nos momentos de angústia extrema."
+    "history": "Primo de Jesus e mártir da fé, São Judas Tadeu percorreu a Mesopotâmia e a Pérsia anunciando o Evangelho com fidelidade heroica. Sua intercessão é invocada mundialmente nos momentos de angústia extrema.",
+    "major_feast": true,
+    "has_novena": true
   },
   "06-13": {
     "name": "Santo Antônio de Pádua",
     "title": "Doutor Evangélico e Protetor dos Pobres",
     "quote": "A fé sem as obras é morta. Quem ama a Deus não apenas fala d'Ele, mas vive a Sua Palavra.",
     "prayer": "Santo Antônio, mestre da Palavra e amigo dos humildes, ajudai-nos a encontrar a paz, a reconciliação e a graça de que necessitamos. Amém.",
-    "history": "Nascido em Lisboa e falecido em Pádua, Santo Antônio foi um dos maiores teólogos e pregadores da Igreja Católica. Famoso por sua caridade inesgotável com o pão dos pobres e pelo dom dos milagres."
+    "history": "Nascido em Lisboa e falecido em Pádua, Santo Antônio foi um dos maiores teólogos e pregadores da Igreja Católica. Famoso por sua caridade inesgotável com o pão dos pobres e pelo dom dos milagres.",
+    "major_feast": true,
+    "has_novena": true
   },
   "06-24": {
     "name": "São João Batista",
@@ -60,7 +70,9 @@
     "title": "Esposo da Virgem Maria e Patrono da Igreja Universal",
     "quote": "O silêncio de São José nos ensina que a verdadeira grandeza reside na obediência fiel e no amor discreto.",
     "prayer": "Ó glorioso São José, protetor da Sagrada Família, velai por nossos lares, concedei-nos o sustento digno do trabalho e guardai nossos corações na retidão. Amém.",
-    "history": "Homem justo e carpinteiro de Nazaré, recebeu de Deus a sublime missão de proteger o Menino Jesus e a Virgem Maria, governando a Sagrada Família com ternura, prudência e trabalho diligente."
+    "history": "Homem justo e carpinteiro de Nazaré, recebeu de Deus a sublime missão de proteger o Menino Jesus e a Virgem Maria, governando a Sagrada Família com ternura, prudência e trabalho diligente.",
+    "major_feast": true,
+    "has_novena": true
   },
   "04-23": {
     "name": "São Jorge",
@@ -74,28 +86,36 @@
     "title": "Advogada das Causas Impossíveis",
     "quote": "Não há sofrimento vão quando é oferecido com amor ao lado da Cruz de Cristo.",
     "prayer": "Santa Rita de Cássia, modelo de paciência e perdão, intercedei por nós nos momentos de desespero e alcançai-nos a graça de transformar as dores em flores de caridade. Amém.",
-    "history": "Esposa paciente, mãe dedicada e mais tarde religiosa agostiniana, Santa Rita superou tragédias familiares através do perdão heróico. Recebeu o estigma de um espinho da coroa de Jesus em sua fronte."
+    "history": "Esposa paciente, mãe dedicada e mais tarde religiosa agostiniana, Santa Rita superou tragédias familiares através do perdão heróico. Recebeu o estigma de um espinho da coroa de Jesus em sua fronte.",
+    "major_feast": true,
+    "has_novena": true
   },
   "07-11": {
     "name": "São Bento de Núrsia",
     "title": "Pai do Monaquismo Ocidental e Padroeiro da Europa",
     "quote": "Ora et labora — Reza e trabalha.",
     "prayer": "A Cruz Sagrada seja a minha luz, não seja o dragão o meu guia. Retira-te, satanás, nunca me aconselhes coisas vãs. É mau o que tu me ofereces, bebe tu mesmo o teu veneno. Amém.",
-    "history": "Fundador da Abadia de Monte Cassino e da Ordem dos Beneditinos, escreveu a célebre Regra que equilibra oração, silêncio e trabalho diligente, sendo reconhecido como grande defensor contra as ciladas do maligno."
+    "history": "Fundador da Abadia de Monte Cassino e da Ordem dos Beneditinos, escreveu a célebre Regra que equilibra oração, silêncio e trabalho diligente, sendo reconhecido como grande defensor contra as ciladas do maligno.",
+    "major_feast": true,
+    "has_novena": true
   },
   "09-29": {
     "name": "Santos Arcanjos Miguel, Gabriel e Rafael",
     "title": "Príncipes da Milícia Celeste",
     "quote": "Quem como Deus? Ninguém como Deus!",
     "prayer": "São Miguel Arcanjo, defendei-nos no combate. Sede o nosso refúgio contra as maldades e ciladas do demônio. Ordene-lhe Deus, instantemente o pedimos. Amém.",
-    "history": "Mensageiros supremos do Altíssimo: Miguel combate as forças das trevas, Gabriel anuncia os mistérios da Salvação e Rafael conduz a cura do corpo e da alma nas jornadas da vida."
+    "history": "Mensageiros supremos do Altíssimo: Miguel combate as forças das trevas, Gabriel anuncia os mistérios da Salvação e Rafael conduz a cura do corpo e da alma nas jornadas da vida.",
+    "major_feast": true,
+    "has_novena": true
   },
   "12-08": {
     "name": "Imaculada Conceição da Virgem Maria",
     "title": "Cheia de Graça e Rainha dos Céus",
     "quote": "Minha alma engrandece ao Senhor, e o meu espírito se alegra em Deus, meu Salvador.",
     "prayer": "Ó Maria concebida sem pecado, rogai por nós que recorremos a vós. Purificai nosso olhar e guardai nossa alma na santidade. Amém.",
-    "history": "Dogma proclamado em 1854 pelo Papa Pio IX, que celebra a graça singular concedida à Virgem Maria de ser preservada de toda mancha do pecado original desde o primeiro instante de sua concepção."
+    "history": "Dogma proclamado em 1854 pelo Papa Pio IX, que celebra a graça singular concedida à Virgem Maria de ser preservada de toda mancha do pecado original desde o primeiro instante de sua concepção.",
+    "major_feast": true,
+    "has_novena": true
   },
   "12-25": {
     "name": "Natal de Nosso Senhor Jesus Cristo",

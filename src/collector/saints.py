@@ -111,7 +111,31 @@ def _split_saint_name_and_title(full_heading: str, invocation_line: str = "") ->
     return inv_name or cleaned, "Memória Litúrgica e Testemunho de Fé"
 
 
-def fetch_saint_from_cancaonova(target_date: date) -> dict[str, Any] | None:
+def check_active_novena(target_date: date | None = None) -> dict[str, Any] | None:
+    """
+    Verifica se a data atual cai em algum período de novena tradicional (9 dias antes de grande solenidade).
+    Retorna os dados da festa, nome do santo e o número do dia da novena (1 a 9).
+    """
+    from datetime import timedelta
+    d = target_date or date.today()
+    catalog = load_saints_catalog()
+
+    # Checa santos de 1 a 9 dias à frente
+    for delta in range(1, 10):
+        future_date = d + timedelta(days=delta)
+        key = f"{future_date.month:02d}-{future_date.day:02d}"
+        if key in catalog and catalog[key].get("has_novena"):
+            saint_info = catalog[key]
+            novena_day = 10 - delta
+            return {
+                "novena_day": novena_day,
+                "total_days": 9,
+                "saint_name": saint_info.get("name"),
+                "feast_date": future_date.strftime("%d/%m"),
+                "feast_title": saint_info.get("title"),
+                "saint_data": saint_info,
+            }
+    return None
     """
     Consulta a fonte oficial da Canção Nova (santo.cancaonova.com) para a data especificada.
     Usa o endpoint oficial do calendário litúrgico para descobrir a URL exata do dia e extrair

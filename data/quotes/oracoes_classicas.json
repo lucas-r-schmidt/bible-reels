@@ -1,0 +1,73 @@
+[
+  {
+    "title": "Oração de São Francisco de Assis",
+    "author": "São Francisco de Assis",
+    "reference": "Oração da Paz",
+    "theme": "paz",
+    "text": "Senhor, fazei-me instrumento de vossa paz. Onde houver ódio, que eu leve o amor; onde houver ofensa, que eu leve o perdão; onde houver discórdia, que eu leve a união; onde houver dúvida, que eu leve a fé; onde houver erro, que eu leve a verdade; onde houver desespero, que eu leve a esperança; onde houver tristeza, que eu leve a alegria; onde houver trevas, que eu leve a luz. Ó Mestre, fazei que eu procure mais consolar que ser consolado; compreender que ser compreendido; amar que ser amado. Pois é dando que se recebe; é perdoando que se é perdoado; e é morrendo que se vive para a vida eterna. Amém."
+  },
+  {
+    "title": "A Cruz Sagrada (Oração da Medalha de São Bento)",
+    "author": "São Bento de Núrsia",
+    "reference": "Proteção Espiritual",
+    "theme": "protecao",
+    "text": "A Cruz Sagrada seja a minha luz, não seja o dragão o meu guia. Retira-te, satanás! Nunca me aconselhes coisas vãs. É mau o que tu me ofereces, bebe tu mesmo o teu veneno. Em nome do Pai, do Filho e do Espírito Santo. Amém."
+  },
+  {
+    "title": "Salmo 91 Completo (A Proteção do Altíssimo)",
+    "author": "Salmos",
+    "reference": "Salmos 91:1-16",
+    "theme": "protecao",
+    "text": "Aquele que habita no esconderijo do Altíssimo, à sombra do Onipotente descansará. Direi do Senhor: Ele é o meu refúgio e a minha fortaleza, o meu Deus, em quem confio. Porque ele te livrará do laço do passarinheiro e da peste perniciosa. Ele te cobrirá com as suas penas, e debaixo das suas asas te confiarás; a sua verdade será o teu escudo e broquel. Não terás medo do terror de noite nem da seta que voa de dia, nem da peste que anda na escuridão, nem da mortandade que assola ao meio-dia. Mil cairão ao teu lado, e dez mil à tua direita, mas não chegará a ti. Amém."
+  },
+  {
+    "title": "Salmo 23 Completo (O Senhor é o meu Pastor)",
+    "author": "Salmos",
+    "reference": "Salmos 23:1-6",
+    "theme": "confianca",
+    "text": "O Senhor é o meu pastor, nada me faltará. Deitar-me faz em verdes pastos, guia-me mansamente a águas tranquilas. Refrigera a minha alma; guia-me pelas veredas da justiça, por amor do seu nome. Ainda que eu andasse pelo vale da sombra da morte, não temeria mal algum, porque tu estás comigo; a tua vara e o teu cajado me consolam. Preparas uma mesa perante mim na presença dos meus inimigos, unges a minha cabeça com óleo, o meu cálice transborda. Certamente que a bondade e a misericórdia me seguirão todos os dias da minha vida; e habitarei na casa do Senhor por longos dias. Amém."
+  },
+  {
+    "title": "A Couraça de São Patrício (Invocação da Trindade)",
+    "author": "São Patrício",
+    "reference": "Armadura da Fé",
+    "theme": "protecao",
+    "text": "Cristo comigo, Cristo diante de mim, Cristo atrás de mim, Cristo em mim, Cristo abaixo de mim, Cristo acima de mim, Cristo à minha direita, Cristo à minha esquerda, Cristo quando me deito, Cristo quando me sento, Cristo quando me levanto. Cristo no coração de todo homem que pensar em mim, Cristo na boca de todo homem que falar de mim, Cristo em todo olho que me vê, Cristo em todo ouvido que me ouve. Do Senhor é a salvação, de Cristo é a salvação, esteja a tua salvação, Senhor, sempre conosco. Amém."
+  },
+  {
+    "title": "O Cântico de Maria — Magnificat",
+    "author": "Nossa Senhora",
+    "reference": "Lucas 1:46-55",
+    "theme": "louvor",
+    "text": "A minha alma engrandece ao Senhor, e o meu espírito se alegra em Deus, meu Salvador, porque olhou para a humildade de sua serva. Doravante todas as gerações me chamarão bem-aventurada, porque o Poderoso fez em mim grandes coisas; Santo é o seu nome! A sua misericórdia se estende de geração em geração sobre aqueles que o temem. Manifestou o poder do seu braço, dispersou os soberbos no coração. Derrubou dos tronos os poderosos e exaltou os humildes. Encheu de bens os famintos e despediu os ricos de mãos vazias. Amém."
+  },
+  {
+    "title": "Alma de Cristo (Anima Christi)",
+    "author": "Tradição Cristã",
+    "reference": "Oração Litúrgica",
+    "theme": "adoracao",
+    "text": "Alma de Cristo, santificai-me. Corpo de Cristo, salvai-me. Sangue de Cristo, inebriai-me. Água do lado de Cristo, lavai-me. Paixão de Cristo, confortai-me. Ó bom Jesus, ouvi-me. Dentro de vossas chagas, escondei-me. Não permitais que me separe de vós. Do espírito maligno, defendei-me. Na hora da minha morte, chamai-me e mandai-me ir para vós, para que com os vossos Santos vos louve por todos os séculos dos séculos. Amém."
+  },
+  {
+    "title": "Vinde, Espírito Santo",
+    "author": "Tradição da Igreja",
+    "reference": "Invocação ao Espírito",
+    "theme": "espirito_santo",
+    "text": "Vinde, Espírito Santo, enchei os corações dos vossos fiéis e acendei neles o fogo do vosso amor. Enviai o vosso Espírito e tudo será criado, e renovareis a face da terra. Oremos: Ó Deus, que instruístes os corações dos vossos fiéis com a luz do Espírito Santo, fazei que apreciemos retamente todas as coisas segundo o mesmo Espírito e gozemos sempre da sua consolação. Por Cristo, Senhor nosso. Amém."
+  },
+  {
+    "title": "Oração a São Miguel Arcanjo",
+    "author": "Papa Leão XIII",
+    "reference": "Defesa Espiritual",
+    "theme": "batalha_espiritual",
+    "text": "São Miguel Arcanjo, defendei-nos no combate. Sede o nosso refúgio contra as maldades e ciladas do demônio. Ordene-lhe Deus, instantemente o pedimos, e vós, príncipe da milícia celeste, pela virtude divina, precipitai no inferno a satanás e a todos os espíritos malignos que andam pelo mundo para perder as almas. Amém."
+  },
+  {
+    "title": "Oração da Serenidade",
+    "author": "Reinhold Niebuhr",
+    "reference": "Paz e Sabedoria",
+    "theme": "paz",
+    "text": "Deus, concedei-me a serenidade para aceitar as coisas que não posso modificar, a coragem para modificar aquelas que posso, e a sabedoria para reconhecer a diferença. Vivendo um dia de cada vez, desfrutando um momento de cada vez; aceitando as dificuldades como o caminho para a paz. Confiando que endireitareis todas as coisas se eu me render à vossa vontade. Amém."
+  }
+]
+

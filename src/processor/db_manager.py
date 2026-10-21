@@ -92,9 +92,10 @@ class DBManager:
         self.conn.commit()
 
         # Migração retrocompatível: adiciona colunas se não existirem
-        for col in ("caption", "hook_title"):
+        for col in ("caption", "hook_title", "series_id", "series_day"):
             try:
-                self.conn.execute(f"ALTER TABLE posts ADD COLUMN {col} TEXT DEFAULT ''")
+                col_type = "INTEGER DEFAULT 0" if col == "series_day" else "TEXT DEFAULT ''"
+                self.conn.execute(f"ALTER TABLE posts ADD COLUMN {col} {col_type}")
                 self.conn.commit()
             except sqlite3.OperationalError:
                 pass
@@ -398,6 +399,24 @@ class DBManager:
             """SELECT * FROM comment_interactions
                ORDER BY id DESC LIMIT ?""",
             (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_recent_prayer_requests(self, limit: int = 10, days: int = 14) -> list[dict[str, Any]]:
+        """Busca comentários recentes de seguidores com pedidos de oração ou fé."""
+        rows = self.conn.execute(
+            """SELECT * FROM comment_interactions
+               WHERE (sentiment IN ('prayer_request', 'faith', 'gratitude')
+                  OR comment_text LIKE '%orai%'
+                  OR comment_text LIKE '%oração%'
+                  OR comment_text LIKE '%oracao%'
+                  OR comment_text LIKE '%amém%'
+                  OR comment_text LIKE '%amem%'
+                  OR comment_text LIKE '%peço%'
+                  OR comment_text LIKE '%reze%')
+                 AND created_at >= datetime('now', ?)
+               ORDER BY id DESC LIMIT ?""",
+            (f"-{days} days", limit)
         ).fetchall()
         return [dict(r) for r in rows]
 

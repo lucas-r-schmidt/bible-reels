@@ -27,11 +27,12 @@ from config.settings import (
     WEBHOOK_URL,
 )
 from src.collector.bible_api import collect_verses
-from src.collector.local_quotes import collect_quotes
+from src.collector.local_quotes import collect_quotes, collect_classic_prayers
+from src.collector.liturgy import collect_gospel_of_day, collect_psalm_of_day
 from src.collector.saints import collect_saint_of_day, get_saint_for_date, get_saint_image
 from src.media_gen.image_builder import generate_post_image
 from src.media_gen.video_builder import generate_video_from_image
-from src.processor.ai_formatter import format_verse, format_saint_post
+from src.processor.ai_formatter import format_verse, format_saint_post, format_gospel_post, format_community_prayer_post
 from src.processor.db_manager import DBManager
 from src.publisher.buffer_api import publish_via_buffer
 from src.publisher.postproxy import PostproxyPublisher, publish_via_postproxy
@@ -362,13 +363,31 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
             if path == "/api/actions/collect":
                 source = data.get("source", "both")
                 count = int(data.get("count", 3))
+                theme = data.get("theme", "general")
                 if source in ("saint", "santo"):
                     collect_saint_of_day(db)
+                elif source in ("gospel", "evangelho", "liturgia"):
+                    collect_gospel_of_day(db)
+                elif source in ("prayer", "prayers", "oracao", "oracoes"):
+                    collect_classic_prayers(db, count=count)
+                elif source in ("community", "intercessao", "pedidos"):
+                    recent = db.get_recent_prayer_requests(limit=10)
+                    c_hash = f"community_prayer_{date.today().isoformat()}"
+                    if not db.verse_exists(c_hash):
+                        authors = [c.get("author_name") for c in recent if c.get("author_name")]
+                        names_preview = ", ".join(authors[:5]) if authors else "nossa comunidade"
+                        db.insert_verse(
+                            source="community",
+                            reference="Oração pelos Inscritos",
+                            text=f"Momento de intercessão e bênção pelas famílias de {names_preview} e de todos os inscritos.",
+                            content_hash=c_hash,
+                            translation="Comunidade de Fé"
+                        )
                 else:
                     if source in ("bible", "both"):
-                        collect_verses(db, count=count)
+                        collect_verses(db, count=count, theme=theme)
                     if source in ("quotes", "both"):
-                        collect_quotes(db, count=count)
+                        collect_quotes(db, count=count, theme=theme)
                 self._send_json({"success": True, "message": f"Coleta realizada com sucesso ({count} itens)."})
                 return
 
@@ -547,6 +566,11 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                     if item.get("source") == "saint":
                         saint_meta = get_saint_for_date()
                         ai_data = format_saint_post(item["reference"], item["text"], saint_metadata=saint_meta)
+                    elif item.get("source") == "gospel":
+                        ai_data = format_gospel_post(item["reference"], item["text"], celebration=item.get("translation", ""))
+                    elif item.get("source") == "community":
+                        recent = db.get_recent_prayer_requests(limit=10)
+                        ai_data = format_community_prayer_post(recent)
                     else:
                         try:
                             ai_data = format_verse(item["reference"], item["text"])

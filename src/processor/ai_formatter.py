@@ -41,6 +41,26 @@ def _build_prompt(reference: str, text: str, theme: str = "general") -> str:
 - Foco em serenidade, paz, gratidão e descanso noturno para hashtags e visual_prompt.
 - Inclua nas hashtags termos como: boanoite, gratidao, paz, descanso, alivio, oracaodanoite, fe.
 - O visual_prompt DEVE ser um entardecer sereno, pôr do sol suave sobre lago calmo ou céu estrelado tranquilo."""
+    elif theme == "ansiedade":
+        theme_directive = """DIRETRIZ DE CURA DA ANSIEDADE E AFLIÇÃO:
+- O gancho (hook_title) DEVE falar diretamente com quem está ansioso ou angustiado (ex: 'Para o coração ansioso hoje', 'Deus acalma sua ansiedade', 'Respire fundo e ouça isso').
+- Inclua nas hashtags: ansiedade, pazinterior, alivio, fe, deusnocontrole, confianca."""
+    elif theme == "cansaco":
+        theme_directive = """DIRETRIZ PARA CANSAÇO E SOBRECARGA:
+- O gancho (hook_title) DEVE acolher quem está esgotado ou sobrecarregado (ex: 'Para quem está cansado hoje', 'Deus renova tuas forças', 'Quando o peso for demais').
+- Inclua nas hashtags: cansaco, forca, renovacao, descansaemdeus, perseveranca."""
+    elif theme == "medo":
+        theme_directive = """DIRETRIZ CONTRA O MEDO E INCERTEZA:
+- O gancho (hook_title) DEVE inspirar coragem e segurança em Deus (ex: 'Não tenha medo do amanhã', 'Deus está no comando', 'Coragem, Ele cuida de você').
+- Inclua nas hashtags: naotemas, coragem, vitoria, protecaodivina, fe."""
+    elif theme == "familia":
+        theme_directive = """DIRETRIZ PARA FAMÍLIA E LAR:
+- O gancho (hook_title) DEVE abençoar o lar e a família (ex: 'Uma bênção para seu lar', 'Proteção para sua família', 'A paz na sua casa').
+- Inclua nas hashtags: familia, lardepaz, bencaodivina, casadeoracao, amorfamiliar."""
+    elif theme == "sunday_blessing":
+        theme_directive = """DIRETRIZ DE DOMINGO (BÊNÇÃO DA SEMANA):
+- O gancho (hook_title) DEVE preparar a alma e abençoar a semana que se inicia (ex: 'Bênção para sua nova semana', 'Domingo de paz e graça', 'Comece a semana com Deus').
+- Inclua nas hashtags: felizdomingo, bencaodasemana, diadosenhor, fe, gratidao."""
     else:
         theme_directive = "Foco em reflexão bíblica de fé, esperança e paz para hashtags e visual_prompt."
 
@@ -286,4 +306,174 @@ Retorne EXCLUSIVAMENTE um objeto JSON estrito com exatamente as seguintes chaves
         "caption": caption,
         "hashtags": hashtags,
         "visual_prompt": visual_prompt
+    }
+
+
+def format_gospel_post(reference: str, text: str, celebration: str = "") -> dict:
+    """
+    Formata o Evangelho do Dia para publicação em vídeo/carrossel.
+    Garante fidelidade 100% ao texto do Evangelho e gera reflexão pastoral/homilia concisa.
+    """
+    prompt = f"""Você é um teólogo e liturgista católico especialista em redes sociais cristãs.
+Abaixo está o Evangelho Oficial do Dia proclamado pela Igreja Católica:
+Celebração Litúrgica: {celebration}
+Referência Bíblica: {reference}
+Texto Sagrado:
+{text}
+
+REGRA CRÍTICA INEGOCIÁVEL:
+NUNCA altere o texto bíblico do Evangelho.
+
+Gere um objeto JSON estrito com as seguintes chaves:
+{{
+  "hook_title": "Gancho de 3 a 6 palavras impactantes para prender a atenção nos primeiros 2 segundos do Reel (ex: 'O Evangelho de Hoje para Você', 'Jesus tem um recado para sua vida', 'Palavra de Salvação para Hoje').",
+  "homily_reflection": "Uma reflexão pastoral/homilia concisa e profunda de 1 parágrafo (máximo 250 caracteres) aplicando a mensagem de Jesus para a vida diária dos fiéis hoje.",
+  "caption": "Legenda completa para redes sociais contendo: 1) Título solene '📖 Evangelho do Dia ({reference})'; 2) Texto do Evangelho ou trecho central; 3) Reflexão pastoral/homilia; 4) Chamada devocional ('Deixe seu Amém e compartilhe a Boa Nova'); 5) Bloco de hashtags católicas.",
+  "hashtags": ["evangelhododia", "palavradosenhor", "liturgiadiaria", "catolicismo", "fe", "evangelho", "reelsbrasil", "cristao", "bencaos"],
+  "visual_prompt": "Cinematic holy bible on wooden altar with soft divine sunbeams, ancient reverent church ambiance, sacred illumination, peaceful and sacred, 8k"
+}}"""
+
+    # 1. Tenta Gemini
+    try:
+        _configure_genai()
+        model = genai.GenerativeModel(GEMINI_MODEL)
+        res = model.generate_content(
+            prompt,
+            generation_config={"temperature": 0.6, "response_mime_type": "application/json"},
+            request_options={"timeout": 7.0}
+        )
+        raw = res.text.strip()
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+        data = json.loads(raw)
+        if data.get("caption") and data.get("hook_title"):
+            hashtags = [t.lstrip("#").strip() for t in data.get("hashtags", []) if isinstance(t, str) and t.strip()]
+            return {
+                "hook_title": data["hook_title"].strip(),
+                "formatted_text": f"{text.strip()}\n\n— {reference.strip()}",
+                "homily_reflection": data.get("homily_reflection", "").strip(),
+                "caption": data["caption"].strip(),
+                "hashtags": hashtags,
+                "visual_prompt": data.get("visual_prompt", "Cinematic holy bible with soft sunlight")
+            }
+    except Exception as exc:
+        log.warning(f"Falha ao formatar Evangelho via Gemini ({exc}). Tentando Groq...")
+
+    # 2. Tenta Groq
+    try:
+        if GROQ_API_KEY:
+            res = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+                json={
+                    "model": GROQ_MODEL or "llama-3.1-8b-instant",
+                    "messages": [
+                        {"role": "system", "content": "Responda exclusivamente JSON estrito."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "response_format": {"type": "json_object"},
+                    "temperature": 0.3
+                },
+                timeout=12
+            )
+            if res.ok:
+                data = json.loads(res.json()["choices"][0]["message"]["content"])
+                if data.get("caption") and data.get("hook_title"):
+                    hashtags = [t.lstrip("#").strip() for t in data.get("hashtags", []) if isinstance(t, str) and t.strip()]
+                    return {
+                        "hook_title": data["hook_title"].strip(),
+                        "formatted_text": f"{text.strip()}\n\n— {reference.strip()}",
+                        "homily_reflection": data.get("homily_reflection", "").strip(),
+                        "caption": data["caption"].strip(),
+                        "hashtags": hashtags,
+                        "visual_prompt": data.get("visual_prompt", "Cinematic holy bible with soft sunlight")
+                    }
+    except Exception as exc:
+        log.warning(f"Falha ao formatar Evangelho via Groq ({exc}).")
+
+    # 3. Fallback determinístico
+    clean_text = text.strip()
+    caption = (
+        f"📖 Evangelho do Dia — {reference}\n"
+        f"✨ {celebration}\n\n"
+        f"\"{clean_text[:500]}...\"\n\n"
+        f"🙏 Que a Palavra de Cristo ilumine o seu caminhar hoje. Deixe seu \"Amém\" e compartilhe essa bênção!\n\n"
+        f"#evangelhododia #liturgiadiaria #fe #jesus #palavradedeus #catolicismo #reelsbrasil"
+    )
+    return {
+        "hook_title": "O EVANGELHO DO DIA PARA VOCÊ",
+        "formatted_text": f"{clean_text}\n\n— {reference.strip()}",
+        "homily_reflection": "A Palavra do Senhor nos convida a manter os corações atentos e confiantes na Sua divina misericórdia.",
+        "caption": caption,
+        "hashtags": ["evangelhododia", "liturgiadiaria", "fe", "jesus", "palavradedeus", "catolicismo"],
+        "visual_prompt": "Cinematic holy bible with soft divine illumination on altar"
+    }
+
+
+def format_community_prayer_post(comments_list: list[dict[str, Any]]) -> dict:
+    """
+    Formata uma publicação de Oração Comunitária baseada nos pedidos e nomes de seguidores reais.
+    """
+    authors = []
+    for c in comments_list:
+        name = (c.get("author_name") or "").strip()
+        # Limpa @ ou caracteres estranhos
+        name = re.sub(r"^@+", "", name).strip()
+        if name and name not in authors and len(name) <= 25:
+            authors.append(name)
+
+    names_str = ", ".join(authors[:6]) if authors else "nossa comunidade e famílias"
+
+    prompt = f"""Você é um sacerdote/pastor dedicando um momento especial de intercessão e oração pelos inscritos da página.
+Nomes de inscritos que pediram oração recentemente: {names_str}.
+
+Gere um objeto JSON estrito com:
+{{
+  "hook_title": "ORAÇÃO PELOS NOSSOS IRMÃOS",
+  "prayer_text": "Oração solene de intercessão e súplica a Deus abençoando nominalmente os irmãos ({names_str}) e todas as famílias da nossa comunidade (máximo 4 linhas devocionais com Amém).",
+  "caption": "Legenda afetuosa e inspiradora mencionando que estivemos em oração pelas intenções de {names_str} e de todos os inscritos. Convide os seguidores a deixarem seus novos pedidos nos comentários. Termine com hashtags de oração e fé.",
+  "hashtags": ["oracaododia", "intercessao", "comunidadedefe", "oracao", "familia", "fe", "reelsbrasil", "amigosdedeus"],
+  "visual_prompt": "Warm candle glowing softly in peaceful sanctuary, hands united in prayer, divine golden ambient light, peaceful and sacred"
+}}"""
+
+    # 1. Tenta Gemini
+    try:
+        _configure_genai()
+        model = genai.GenerativeModel(GEMINI_MODEL)
+        res = model.generate_content(
+            prompt,
+            generation_config={"temperature": 0.6, "response_mime_type": "application/json"},
+            request_options={"timeout": 7.0}
+        )
+        data = json.loads(res.text.strip())
+        if data.get("prayer_text") and data.get("caption"):
+            hashtags = [t.lstrip("#").strip() for t in data.get("hashtags", []) if isinstance(t, str) and t.strip()]
+            return {
+                "hook_title": "ORAÇÃO PELOS NOSSOS IRMÃOS",
+                "formatted_text": f"{data['prayer_text'].strip()}\n\n— Intenções de {names_str}",
+                "caption": data["caption"].strip(),
+                "hashtags": hashtags,
+                "visual_prompt": data.get("visual_prompt", "Warm candle glowing softly in peaceful sanctuary")
+            }
+    except Exception as exc:
+        log.warning(f"Falha ao formatar oração comunitária via Gemini ({exc}).")
+
+    fallback_prayer = (
+        f"Senhor Jesus, nós colocamos em Vossas mãos as vidas, lares e aflições de {names_str} "
+        f"e de todos os nossos irmãos que nos acompanham. Que a Tua paz repouse sobre cada família e que nenhuma lágrima "
+        f"seja em vão. Derrama Tuas bênçãos e dá-nos a vitória pela fé. Amém."
+    )
+    caption = (
+        f"🙏 Momento de Oração Comunitária pelos Nossos Irmãos\n\n"
+        f"Hoje nossa oração sobe aos Céus de modo especial por: {names_str} e por todas as intenções do nosso canal.\n\n"
+        f"\"{fallback_prayer}\"\n\n"
+        f"Deixe o seu nome e seu pedido de oração nos comentários! Estaremos rezando por você na próxima oração comunitária. 🙏✨\n\n"
+        f"#oracaododia #intercessao #fe #deuscuidadenois #oracao #comunidadedefe #reelsbrasil"
+    )
+    return {
+        "hook_title": "ORAÇÃO PELOS NOSSOS IRMÃOS",
+        "formatted_text": f"{fallback_prayer}\n\n— Intenções da Comunidade",
+        "caption": caption,
+        "hashtags": ["oracaododia", "intercessao", "fe", "oracao", "comunidadedefe"],
+        "visual_prompt": "Warm candle glowing softly in peaceful sanctuary, hands united in prayer"
     }

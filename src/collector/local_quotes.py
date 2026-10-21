@@ -20,6 +20,59 @@ from src.utils.logger import get_logger
 log = get_logger(__name__)
 
 DEFAULT_QUOTES_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "quotes" / "motivacional.json"
+CLASSIC_PRAYERS_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "quotes" / "oracoes_classicas.json"
+
+
+def load_classic_prayers() -> list[dict]:
+    """Carrega as grandes orações e salmos clássicos da tradição cristã."""
+    if not CLASSIC_PRAYERS_FILE.is_file():
+        log.warning(f"Arquivo de orações clássicas não encontrado: {CLASSIC_PRAYERS_FILE}")
+        return []
+    try:
+        with open(CLASSIC_PRAYERS_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, list) else []
+    except Exception as exc:
+        log.error(f"Erro ao carregar orações clássicas: {exc}")
+        return []
+
+
+def collect_classic_prayers(db: DBManager, count: int = 1) -> list[dict]:
+    """Coleta e registra oração clássica no banco com source='prayer'."""
+    prayers = load_classic_prayers()
+    if not prayers:
+        return []
+    random.shuffle(prayers)
+
+    candidates = [p for p in prayers if not db.verse_reference_exists(p.get("title", p.get("reference", "")))]
+    if not candidates:
+        candidates = prayers
+
+    collected = []
+    for item in candidates:
+        if len(collected) >= count:
+            break
+        ref = item.get("title", item.get("reference", "Oração Clássica"))
+        text = item.get("text", "").strip()
+        c_hash = _hash_text(f"prayer_{ref}_{text[:50]}")
+        if db.verse_exists(c_hash):
+            continue
+        v_id = db.insert_verse(
+            source="prayer",
+            reference=ref,
+            text=text,
+            content_hash=c_hash,
+            translation=item.get("author", "Tradição Cristã")
+        )
+        collected.append({
+            "id": v_id,
+            "reference": ref,
+            "text": text,
+            "author": item.get("author", "Tradição Cristã"),
+            "source": "prayer"
+        })
+        log.info(f"Oração clássica coletada: {ref} (ID {v_id})")
+    return collected
 
 
 def _hash_text(text: str) -> str:
