@@ -123,6 +123,12 @@ def _try_fetch_unsplash_fallback(clean_prompt: str, reference: str, cached_file:
     """4ª Opção: Acervo curado Unsplash de alta resolução para redundância total."""
     try:
         fallbacks = [
+            # Arte Sacra & Atmosfera Litúrgica (Velas, Vitrais, Catedral)
+            "https://images.unsplash.com/photo-1548625361-16a70a8d8745?w=1080&h=1920&fit=crop",  # Luz divina e velas no altar
+            "https://images.unsplash.com/photo-1519817650390-64a93db51149?w=1080&h=1920&fit=crop",  # Vitral sacro e raios de sol
+            "https://images.unsplash.com/photo-1438232992991-995b7058bbb3?w=1080&h=1920&fit=crop",  # Bíblia sagrada sob luz de velas
+            "https://images.unsplash.com/photo-1507692049790-de58290a4334?w=1080&h=1920&fit=crop",  # Catedral e teto gótico celestial
+            # Natureza Celestial Bíblica (Montanhas, Alvorada, Luz Divina)
             "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=1080&h=1920&fit=crop",  # Montanhas e amanhecer
             "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1080&h=1920&fit=crop",  # Mar sereno ao entardecer
             "https://images.unsplash.com/photo-1437719417032-8595fd9e9dc6?w=1080&h=1920&fit=crop",  # Floresta com raios divinos

@@ -136,6 +136,9 @@ def check_active_novena(target_date: date | None = None) -> dict[str, Any] | Non
                 "saint_data": saint_info,
             }
     return None
+
+
+def fetch_saint_from_cancaonova(target_date: date) -> dict[str, Any] | None:
     """
     Consulta a fonte oficial da Canção Nova (santo.cancaonova.com) para a data especificada.
     Usa o endpoint oficial do calendário litúrgico para descobrir a URL exata do dia e extrair
@@ -555,48 +558,31 @@ def get_saint_for_date(target_date: date | None = None, refresh: bool = False) -
         ai_saint["date_iso"] = d.isoformat()
         return ai_saint
 
-    # Fallback genérico seguro caso nenhuma fonte retorne
-    return {
-        "name": "Santo do Dia",
-        "title": "Testemunha da Fé e da Esperança",
-        "quote": "Buscai primeiro o Reino de Deus e a sua justiça, e todas as coisas vos serão acrescentadas.",
-        "prayer": "Senhor Deus, concedei-nos a perseverança e a retidão de Vossos santos para vencermos com coragem os desafios da jornada diária. Amém.",
-        "history": "A Igreja celebra a memória daqueles que dedicaram suas vidas a amar a Deus e ao próximo com fidelidade extraordinária, servindo como faróis de virtude e consolo para todas as gerações.",
-        "date_str": f"{d.day:02d}/{d.month:02d}",
-        "date_iso": d.isoformat()
-    }
+    log.error(f"Nenhum santo do dia identificado pelas fontes oficiais nem pela IA para {key}.")
+    return None
 
 
 def collect_saint_of_day(
     db: DBManager,
     target_date: date | None = None,
     force: bool = False
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     """
     Coleta e persiste no banco de dados o Santo do Dia como item de conteúdo (tabela verses).
     Garante idempotência evitando inserções duplicadas para o mesmo dia.
+    Em caso de falha, NUNCA substitui por outro tipo de conteúdo (como versículo avulso).
+    Retorna None para que o pipeline aborte de forma segura.
     """
     d = target_date or date.today()
     try:
-        saint = get_saint_for_date(d)
+        saint = get_saint_for_date(d, refresh=force)
     except Exception as exc:
-        log.error(f"Falha ao identificar Santo do Dia ({exc}). Acionando fallback para Versículo Matinal...")
-        from src.collector.bible_api import collect_verses
-        collected = collect_verses(db, count=1, theme="morning")
-        if collected:
-            v = collected[0]
-            return {
-                "name": v["reference"],
-                "title": "Palavra de Fé Matinal",
-                "quote": v["text"],
-                "prayer": "",
-                "history": "",
-                "date_str": f"{d.day:02d}/{d.month:02d}",
-                "date_iso": d.isoformat(),
-                "verse_id": v["id"],
-                "is_fallback_verse": True,
-            }
-        raise
+        log.error(f"Falha ao identificar Santo do Dia para {d.strftime('%d/%m')}: {exc}. Abortando sem substituição.")
+        return None
+
+    if not saint or not saint.get("name") or not saint.get("quote"):
+        log.error(f"Santo do dia não encontrado ou incompleto para {d.strftime('%d/%m')}. Abortando sem substituição.")
+        return None
 
     content_hash = _hash_content(f"saint_{d.isoformat()}_{saint['name']}")
 
@@ -618,6 +604,45 @@ def collect_saint_of_day(
 
     log.info(f"Santo do dia coletado e registrado com sucesso: {ref} (ID {verse_id})")
     return {**saint, "verse_id": verse_id, "already_exists": False}
+
+
+def collect_novena_of_day(
+    db: DBManager,
+    target_date: date | None = None
+) -> dict[str, Any] | None:
+    """
+    Identifica se há novena litúrgica ativa para a data (1 a 9 dias antes da grande festa).
+    Registra no banco de dados com source='novena' de forma idempotente.
+    """
+    d = target_date or date.today()
+    nov = check_active_novena(d)
+    if not nov:
+        return None
+
+    saint_name = nov["saint_name"]
+    novena_day = nov["novena_day"]
+    feast_date = nov["feast_date"]
+    s_data = nov.get("saint_data", {})
+    prayer = s_data.get("prayer") or f"Ó Deus, por intercessão de {saint_name}, concedei-nos a graça que Vos pedimos neste {novena_day}º dia de novena. Amém."
+
+    ref = f"Novena de {saint_name} ({novena_day}º Dia) - {d.strftime('%d/%m')}"
+    c_hash = _hash_content(f"novena_{d.isoformat()}_{saint_name}_{novena_day}")
+
+    if db.verse_exists(c_hash):
+        row = db.conn.execute("SELECT * FROM verses WHERE hash = ?", (c_hash,)).fetchone()
+        log.info(f"Novena já registrada para hoje: {ref} (ID {row['id']})")
+        return {**nov, "verse_id": row["id"], "already_exists": True}
+
+    verse_id = db.insert_verse(
+        source="novena",
+        reference=ref,
+        text=prayer,
+        content_hash=c_hash,
+        translation=f"Dia {novena_day} de {nov['total_days']} • Festa em {feast_date}"
+    )
+
+    log.info(f"Novena registrada com sucesso: {ref} (ID {verse_id})")
+    return {**nov, "verse_id": verse_id, "already_exists": False}
 
 
 SAINTS_IMAGES_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "saints" / "images"

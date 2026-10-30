@@ -19,6 +19,47 @@ from src.utils.logger import get_logger
 
 log = get_logger(__name__)
 
+AUDIO_THEME_MAP: dict[str, list[str]] = {
+    "saint": ["canto_gregoriano.mp3", "cordas_bach_air.mp3", "piano_nocturne.mp3", "violoncelo_devocional_bach.mp3"],
+    "psalm": ["harpa_flauta_sagrada.mp3", "piano_gymnopedie.mp3", "cordas_bach_air.mp3", "violoncelo_devocional_bach.mp3"],
+    "prayer": ["cordas_bach_air.mp3", "harpa_flauta_sagrada.mp3", "piano_moonlight.mp3", "background_peaceful.mp3"],
+    "gospel": ["orquestral_canon_pachelbel.mp3", "piano_clair_de_lune.mp3", "cordas_bach_air.mp3", "background_peaceful.mp3"],
+    "faith": ["orquestral_canon_pachelbel.mp3", "piano_clair_de_lune.mp3", "cordas_bach_air.mp3", "background_peaceful.mp3"],
+    "novena": ["canto_gregoriano.mp3", "cordas_bach_air.mp3", "harpa_flauta_sagrada.mp3"],
+}
+
+
+def detect_theme(text: str = "", path: str = "") -> str:
+    """Infere tema litúrgico a partir do texto ou caminho do arquivo."""
+    combined = f"{text} {path}".lower()
+    if any(k in combined for k in ("santo", "santa", "são ", "sao ", "liturgia_diaria")):
+        return "saint"
+    if any(k in combined for k in ("novena", "campanha")):
+        return "novena"
+    if any(k in combined for k in ("salmo", "psalm")):
+        return "psalm"
+    if any(k in combined for k in ("evangelho", "gospel")):
+        return "gospel"
+    if any(k in combined for k in ("oração", "oracao", "prece", "reze", "amém", "amem")):
+        return "prayer"
+    return "faith"
+
+
+def select_audio_track(theme: str = "") -> Path | None:
+    """Seleciona trilha sonora de acordo com o tema litúrgico/devocional."""
+    tracks = get_available_audio_tracks()
+    if not tracks:
+        return None
+
+    t_clean = (theme or "").strip().lower()
+    matching_names = AUDIO_THEME_MAP.get(t_clean)
+    if matching_names:
+        matched_paths = [t for t in tracks if t.name in matching_names]
+        if matched_paths:
+            return random.choice(matched_paths)
+
+    return random.choice(tracks)
+
 
 def get_available_audio_tracks() -> list[Path]:
     """Retorna arquivos de áudio disponíveis em data/audio."""
@@ -48,22 +89,40 @@ def _get_audio_duration(path: Path) -> float:
     return 0.0
 
 
+def _format_subtitles_filter(subtitles_file: Path | None) -> str:
+    """Retorna a cláusula do filtro 'subtitles' com caminho seguro e fontsdir."""
+    if not subtitles_file or not Path(subtitles_file).is_file():
+        return ""
+    p = Path(subtitles_file).resolve()
+    try:
+        rel = p.relative_to(Path.cwd()).as_posix()
+        sub_arg = rel
+    except Exception:
+        sub_arg = str(p).replace("\\", "/").replace(":", r"\:")
+    return f"subtitles={sub_arg}:fontsdir=data/fonts"
+
+
 def _build_video_ffmpeg(
     image_path: Path,
     out_file: Path,
     dur: int,
     tts_audio: Path | None,
-    bg_music: Path | None
+    bg_music: Path | None,
+    subtitles_file: Path | None = None
 ) -> bool:
-    """Renderiza vídeo dinâmico com efeito Ken Burns e mixagem via FFmpeg CLI."""
+    """Renderiza vídeo dinâmico com efeito Ken Burns, legendas dinâmicas ASS e mixagem via FFmpeg CLI."""
     total_frames = max(24, int(dur * 24))
     zoom_step = 0.10 / total_frames
 
-    # Ken Burns filter: zoom suave contínuo em direção ao centro
+    # Ken Burns filter: zoom suave contínuo em direção ao centro + color grade litúrgico
     video_filter = (
         f"zoompan=z='min(zoom+{zoom_step:.6f},1.10)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
-        f"d=1:s=1080x1920:fps=24"
+        f"d=1:s=1080x1920:fps=24,eq=contrast=1.06:brightness=0.01:saturation=1.10"
     )
+
+    sub_filter = _format_subtitles_filter(subtitles_file)
+    if sub_filter:
+        video_filter = f"{video_filter},{sub_filter}"
 
     fade_start = max(1, dur - 2)
 
@@ -139,14 +198,15 @@ def _build_multislide_video_ffmpeg(
     out_file: Path,
     dur: int,
     tts_audio: Path | None,
-    bg_music: Path | None
+    bg_music: Path | None,
+    subtitles_file: Path | None = None
 ) -> bool:
-    """Renderiza vídeo sequencial multi-cena (Ken Burns em cada lâmina + mixagem) via FFmpeg CLI."""
+    """Renderiza vídeo sequencial multi-cena (Ken Burns em cada lâmina + mixagem + legendas ASS) via FFmpeg CLI."""
     n = len(slides)
     if n == 0:
         return False
     if n == 1:
-        return _build_video_ffmpeg(slides[0], out_file, dur, tts_audio, bg_music)
+        return _build_video_ffmpeg(slides[0], out_file, dur, tts_audio, bg_music, subtitles_file=subtitles_file)
 
     dur_each = dur / n
     fps = 24
@@ -176,13 +236,20 @@ def _build_multislide_video_ffmpeg(
         f_scene = (
             f"[{i}:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
             f"zoompan=z='{z_expr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
-            f"d=1:s=1080x1920:fps={fps},setpts=PTS-STARTPTS[v{i}]"
+            f"d=1:s=1080x1920:fps={fps},eq=contrast=1.06:brightness=0.01:saturation=1.10,setpts=PTS-STARTPTS[v{i}]"
         )
         filters.append(f_scene)
         concat_inputs.append(f"[v{i}]")
 
     concat_str = "".join(concat_inputs) + f"concat=n={n}:v=1:a=0[vconcat]"
     filters.append(concat_str)
+
+    sub_filter = _format_subtitles_filter(subtitles_file)
+    if sub_filter:
+        filters.append(f"[vconcat]{sub_filter}[vout]")
+        map_video = "[vout]"
+    else:
+        map_video = "[vconcat]"
 
     fade_start = max(1, dur - 2)
     has_tts = tts_audio and Path(tts_audio).is_file()
@@ -211,7 +278,7 @@ def _build_multislide_video_ffmpeg(
         "ffmpeg", "-y",
         *inputs,
         "-filter_complex", ";".join(filters),
-        "-map", "[vconcat]",
+        "-map", map_video,
     ]
     if map_audio:
         cmd.extend(["-map", map_audio, "-c:a", "aac", "-b:a", "192k"])
@@ -319,7 +386,9 @@ def generate_video_from_image(
     audio_path: Path | None = None,
     narration_text: str | None = None,
     with_narration: bool = True,
-    slides: list[Path] | None = None
+    slides: list[Path] | None = None,
+    theme: str = "",
+    subtitles_path: Path | None = None,
 ) -> Path | None:
     """
     Renderiza vídeo dinâmico 9:16 (1080x1920) com efeito Ken Burns e áudio mixado.
@@ -341,8 +410,10 @@ def generate_video_from_image(
         else:
             out_file = OUTPUT_VIDEOS / f"{image_path.stem}.mp4"
 
-    # 1. Gate Crítico de Narração Neural
+    # 1. Gate Crítico de Narração Neural & Legendas ASS
     tts_audio: Path | None = None
+    ass_subtitles: Path | None = subtitles_path if (subtitles_path and Path(subtitles_path).is_file()) else None
+
     if with_narration and narration_text:
         from config.settings import ENABLE_AUDIO_CTA, CTA_VERSE_TEXT
         text_to_narrate = narration_text.strip()
@@ -354,7 +425,13 @@ def generate_video_from_image(
                 text_to_narrate = build_verse_narration_text(text_to_narrate)
 
         tts_temp = OUTPUT_VIDEOS / f"{out_file.stem}_narration.mp3"
-        tts_audio = generate_narration(text_to_narrate, tts_temp)
+        ass_temp = OUTPUT_VIDEOS / f"{out_file.stem}_subtitles.ass"
+
+        from src.media_gen.tts import generate_narration_with_subtitles
+        tts_audio, ass_generated = generate_narration_with_subtitles(text_to_narrate, tts_temp, ass_temp)
+        if ass_generated and not ass_subtitles:
+            ass_subtitles = ass_generated
+
         if not tts_audio or not tts_audio.is_file():
             err_msg = (
                 f"Falha crítica na geração de narração neural para '{image_path.stem}'. "
@@ -367,14 +444,18 @@ def generate_video_from_image(
         tts_dur = _get_audio_duration(tts_audio)
         if tts_dur > 0:
             computed_dur = max(6, int(round(tts_dur + 1.0)))
-            dur = max(duration, computed_dur) if duration else computed_dur
+            is_saint_or_multi = bool((slides and len(slides) > 2) or theme == "saint")
+            if is_saint_or_multi:
+                # Garante piso de 62s para monetização TikTok (>60s) e retenção devocional
+                dur = max(62, computed_dur)
+            else:
+                dur = max(duration, computed_dur) if duration else computed_dur
 
-    # 2. Seleciona trilha ambiente de fundo
+    # 2. Seleciona trilha ambiente de fundo contextualmente
     bg_music = audio_path
     if not bg_music:
-        tracks = get_available_audio_tracks()
-        if tracks:
-            bg_music = random.choice(tracks)
+        eff_theme = theme or detect_theme(narration_text or "", str(image_path))
+        bg_music = select_audio_track(eff_theme)
     if bg_music and Path(bg_music).is_file():
         log.info(f"Trilha de fundo selecionada: {Path(bg_music).name}")
 
@@ -413,14 +494,14 @@ def generate_video_from_image(
             if len(found) > 1:
                 slides_to_use = found
 
-    # 4. Renderiza com Ken Burns via FFmpeg primário
+    # 4. Renderiza com Ken Burns e legendas ASS dinâmicas via FFmpeg primário
     if len(slides_to_use) > 1:
         log.info(f"Renderizando vídeo multi-cena sequencial com {len(slides_to_use)} lâminas dinâmicas...")
-        success = _build_multislide_video_ffmpeg(slides_to_use, out_file, dur, tts_audio, bg_music)
+        success = _build_multislide_video_ffmpeg(slides_to_use, out_file, dur, tts_audio, bg_music, subtitles_file=ass_subtitles)
         if not success:
-            success = _build_video_ffmpeg(slides_to_use[0], out_file, dur, tts_audio, bg_music)
+            success = _build_video_ffmpeg(slides_to_use[0], out_file, dur, tts_audio, bg_music, subtitles_file=ass_subtitles)
     else:
-        success = _build_video_ffmpeg(image_path, out_file, dur, tts_audio, bg_music)
+        success = _build_video_ffmpeg(image_path, out_file, dur, tts_audio, bg_music, subtitles_file=ass_subtitles)
         if not success:
             success = _build_video_moviepy(image_path, out_file, dur, tts_audio, bg_music)
 

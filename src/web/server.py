@@ -13,8 +13,13 @@ import threading
 from datetime import date, datetime, timedelta, timezone
 from http.server import HTTPServer, SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import sys
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 from config.settings import (
     DB_PATH,
@@ -40,9 +45,28 @@ from src.publisher.webhook import publish_via_webhook
 from src.publisher.instagram_direct import publish_via_instagram_direct
 from src.publisher.tiktok_direct import publish_via_tiktok_direct, is_tiktok_authenticated
 from src.utils.logger import get_logger
+from src.web.auth import (
+    ADMIN_EMAIL,
+    SESSION_COOKIE_NAME,
+    authenticate_email_password,
+    check_rate_limit,
+    clear_login_failures,
+    create_session,
+    delete_user,
+    get_session_user,
+    get_user_by_email,
+    init_auth_db,
+    list_users,
+    record_login_failure,
+    register_user,
+    revoke_session,
+    update_user_status,
+)
 
 log = get_logger("web_server")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+_ACTIVE_CUT_JOBS: dict[str, dict] = {}
+
 
 
 def _is_safe_subpath(base_dir: Path, target: Path) -> bool:
@@ -60,6 +84,37 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         # Silencia logs HTTP excessivos no console
         pass
+
+    def _get_cookie_session(self) -> Optional[str]:
+        raw_cookie = self.headers.get("Cookie", "")
+        if not raw_cookie:
+            return None
+        for part in raw_cookie.split(";"):
+            part = part.strip()
+            if part.startswith(f"{SESSION_COOKIE_NAME}="):
+                return part.split("=", 1)[1].strip()
+        return None
+
+    def _get_current_user(self) -> Optional[dict[str, Any]]:
+        token = self._get_cookie_session()
+        return get_session_user(token)
+
+    def _require_auth(self) -> Optional[dict[str, Any]]:
+        user = self._get_current_user()
+        if not user:
+            self._send_json({"error": "Autenticação necessária.", "need_auth": True}, status=401)
+            return None
+        if user.get("status") == "pending":
+            self._send_json({
+                "error": "Sua conta foi criada e está aguardando aprovação pelo administrador.",
+                "status": "pending",
+                "user": user
+            }, status=403)
+            return None
+        if user.get("status") == "disabled":
+            self._send_json({"error": "Sua conta foi desativada pelo administrador."}, status=403)
+            return None
+        return user
 
     def do_OPTIONS(self) -> None:
         self.send_response(204)
@@ -167,7 +222,7 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
             except Exception:
                 pass
 
-    def _send_json(self, data: Any, status: int = 200) -> None:
+    def _send_json(self, data: Any, status: int = 200, set_cookie: Optional[str] = None) -> None:
         try:
             payload = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
             self.send_response(status)
@@ -175,12 +230,15 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
             self.send_header("Content-Length", str(len(payload)))
             self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.send_header("X-Content-Type-Options", "nosniff")
+            if set_cookie:
+                self.send_header("Set-Cookie", set_cookie)
 
             origin = self.headers.get("Origin", "")
-            if origin and (origin.startswith("http://localhost") or origin.startswith("http://127.0.0.1")):
+            if origin and (origin.startswith("http://localhost") or origin.startswith("http://127.0.0.1") or "flowmedia.com.br" in origin):
                 self.send_header("Access-Control-Allow-Origin", origin)
                 self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
                 self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+                self.send_header("Access-Control-Allow-Credentials", "true")
 
             self.end_headers()
             self.wfile.write(payload)
@@ -190,6 +248,28 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
     # ── API Handlers ──────────────────────────────────────────────────────
 
     def _handle_api_get(self, path: str, params: dict[str, list[str]]) -> None:
+        # Rotas públicas de autenticação
+        if path == "/api/auth/me":
+            user = self._get_current_user()
+            if not user:
+                self._send_json({"authenticated": False, "user": None})
+            else:
+                self._send_json({"authenticated": True, "user": user})
+            return
+
+        # Demais rotas exigem autenticação ativa
+        current_user = self._require_auth()
+        if not current_user:
+            return
+
+        # Rotas exclusivas de Admin
+        if path == "/api/admin/users":
+            if current_user.get("role") != "admin":
+                self._send_json({"error": "Acesso restrito ao administrador."}, status=403)
+                return
+            self._send_json({"users": list_users()})
+            return
+
         db = DBManager(DB_PATH)
         try:
             if path == "/api/stats":
@@ -201,6 +281,8 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                 gospel_count = db.conn.execute("SELECT COUNT(*) FROM posts p JOIN verses v ON v.id = p.verse_id WHERE v.source = 'gospel'").fetchone()[0]
                 saints_count = db.conn.execute("SELECT COUNT(*) FROM posts p JOIN verses v ON v.id = p.verse_id WHERE v.source = 'saint'").fetchone()[0]
                 prayers_count = db.conn.execute("SELECT COUNT(*) FROM posts p JOIN verses v ON v.id = p.verse_id WHERE v.source = 'prayer'").fetchone()[0]
+                psalms_count = db.conn.execute("SELECT COUNT(*) FROM posts p JOIN verses v ON v.id = p.verse_id WHERE v.source = 'psalm'").fetchone()[0]
+                novenas_count = db.conn.execute("SELECT COUNT(*) FROM posts p JOIN verses v ON v.id = p.verse_id WHERE v.source = 'novena'").fetchone()[0]
                 community_count = db.conn.execute("SELECT COUNT(*) FROM posts p JOIN verses v ON v.id = p.verse_id WHERE v.source = 'community'").fetchone()[0]
 
                 from dotenv import load_dotenv
@@ -208,6 +290,9 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                 active_pub = os.getenv("DEFAULT_PUBLISHER", DEFAULT_PUBLISHER)
                 ig_user = os.getenv("INSTAGRAM_USERNAME", "")
                 ig_pass = os.getenv("INSTAGRAM_PASSWORD", "")
+
+                from src.collector.saints import check_active_novena
+                active_nov = check_active_novena(date.today())
 
                 self._send_json({
                     "verses_count": verses_count,
@@ -218,7 +303,10 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                     "count_gospel": gospel_count,
                     "count_saints": saints_count,
                     "count_prayers": prayers_count,
+                    "count_psalms": psalms_count,
+                    "count_novenas": novenas_count,
                     "count_community": community_count,
+                    "active_novena": active_nov,
                     "default_publisher": active_pub,
                     "webhook_configured": bool(os.getenv("WEBHOOK_URL")),
                     "instagram_configured": bool(ig_user and ig_pass),
@@ -232,6 +320,7 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                 limit = int(params.get("limit", ["100"])[0])
                 status_filter = params.get("status", ["all"])[0].lower()
                 type_filter = params.get("type", ["all"])[0].lower()
+                post_id_param = params.get("id", [None])[0]
 
                 query = """
                     SELECT p.*, v.reference, v.text as original_text, v.source as verse_source
@@ -241,21 +330,27 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                 where_clauses = []
                 sql_params = []
 
-                if status_filter in ("unpublished", "nao_publicados", "pending"):
-                    where_clauses.append("p.status != 'published'")
-                elif status_filter in ("published", "publicados"):
-                    where_clauses.append("p.status = 'published'")
+                if post_id_param and post_id_param.isdigit():
+                    where_clauses.append("p.id = ?")
+                    sql_params.append(int(post_id_param))
+                else:
+                    if status_filter in ("unpublished", "nao_publicados", "pending"):
+                        where_clauses.append("p.status != 'published'")
+                    elif status_filter in ("published", "publicados"):
+                        where_clauses.append("p.status = 'published'")
 
-                if type_filter in ("scripture", "scriptures", "bible", "versiculo", "versiculos"):
-                    where_clauses.append("v.source IN ('bible', 'bible_api', 'quotes', 'local_quotes')")
-                elif type_filter in ("saint", "saints", "santo", "santos"):
-                    where_clauses.append("v.source = 'saint'")
-                elif type_filter in ("gospel", "evangelho", "liturgia"):
-                    where_clauses.append("v.source = 'gospel'")
-                elif type_filter in ("prayer", "prayers", "oracao", "oracoes"):
-                    where_clauses.append("v.source = 'prayer'")
-                elif type_filter in ("community", "intercessao", "pedidos"):
-                    where_clauses.append("v.source = 'community'")
+                    if type_filter in ("scripture", "scriptures", "bible", "versiculo", "versiculos"):
+                        where_clauses.append("v.source IN ('bible', 'bible_api', 'quotes', 'local_quotes')")
+                    elif type_filter in ("saint", "saints", "santo", "santos"):
+                        where_clauses.append("v.source = 'saint'")
+                    elif type_filter in ("novena", "novenas"):
+                        where_clauses.append("v.source = 'novena'")
+                    elif type_filter in ("gospel", "evangelho", "liturgia"):
+                        where_clauses.append("v.source = 'gospel'")
+                    elif type_filter in ("prayer", "prayers", "oracao", "oracoes", "psalm", "salmo"):
+                        where_clauses.append("v.source IN ('prayer', 'psalm')")
+                    elif type_filter in ("community", "intercessao", "pedidos"):
+                        where_clauses.append("v.source = 'community'")
 
                 if where_clauses:
                     query += " WHERE " + " AND ".join(where_clauses)
@@ -270,11 +365,13 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                     item = dict(r)
                     v_source = item.get("verse_source") or ""
                     ref_lower = (item.get("reference") or "").lower()
-                    if v_source == "saint" or any(s in ref_lower for s in ("santo", "santa", "nossa senhora")):
+                    if v_source == "novena" or "novena" in ref_lower:
+                        item["content_type"] = "novena"
+                    elif v_source == "saint" or any(s in ref_lower for s in ("santo", "santa", "nossa senhora")):
                         item["content_type"] = "saint"
                     elif v_source == "gospel" or "evangelho" in ref_lower:
                         item["content_type"] = "gospel"
-                    elif v_source == "prayer" or "oração" in ref_lower or "oracao" in ref_lower:
+                    elif v_source in ("prayer", "psalm") or any(k in ref_lower for k in ("oração", "oracao", "salmo")):
                         item["content_type"] = "prayer"
                     elif v_source == "community":
                         item["content_type"] = "community"
@@ -376,13 +473,191 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                 self._send_json({"lines": lines})
                 return
 
+            if path == "/api/actions/cut/status":
+                job_id = params.get("job_id", [None])[0]
+                if not job_id:
+                    self._send_json({"jobs": list(_ACTIVE_CUT_JOBS.values())})
+                    return
+                info = _ACTIVE_CUT_JOBS.get(job_id)
+                if not info:
+                    from src.integrations.videoflow_client import VideoFlowClient
+                    client = VideoFlowClient()
+                    try:
+                        remote = client.get_job_status(job_id)
+                        self._send_json(remote)
+                        return
+                    except Exception as e:
+                        self._send_json({"error": "Job não encontrado", "detail": str(e)}, status=404)
+                        return
+                self._send_json(info)
+                return
+
+            if path == "/api/analytics":
+                summary = db.get_analytics_summary()
+                self._send_json(summary)
+                return
+
             self._send_json({"error": "Endpoint não encontrado"}, status=404)
         finally:
             db.close()
 
     def _handle_api_post(self, path: str, data: dict[str, Any]) -> None:
+        client_ip = self.client_address[0] if self.client_address else "unknown"
+        user_agent = self.headers.get("User-Agent", "")
+
+        # 1. Login por Email e Senha
+        if path == "/api/auth/login":
+            email = str(data.get("email") or "").strip().lower()
+            password = str(data.get("password") or "")
+            remember_me = bool(data.get("remember_me", True))
+
+            if not check_rate_limit(client_ip):
+                self._send_json({"error": "Muitas tentativas sem sucesso. Aguarde alguns minutos."}, status=429)
+                return
+
+            user, err = authenticate_email_password(email, password)
+            if not user or err:
+                record_login_failure(client_ip)
+                self._send_json({"error": err or "Credenciais inválidas."}, status=401)
+                return
+
+            clear_login_failures(client_ip)
+            raw_token, max_age = create_session(user["id"], remember_me=remember_me, ip=client_ip, user_agent=user_agent)
+            cookie_header = (
+                f"{SESSION_COOKIE_NAME}={raw_token}; Max-Age={max_age}; Path=/; "
+                f"SameSite=Lax; HttpOnly"
+            )
+            self._send_json({"success": True, "user": user}, set_cookie=cookie_header)
+            return
+
+        # 2. Cadastro de Nova Conta
+        if path == "/api/auth/register":
+            name = str(data.get("name") or "").strip()
+            email = str(data.get("email") or "").strip().lower()
+            password = str(data.get("password") or "")
+            remember_me = bool(data.get("remember_me", True))
+
+            user, err = register_user(name=name, email=email, password=password)
+            if not user or err:
+                self._send_json({"error": err or "Falha no cadastro."}, status=400)
+                return
+
+            raw_token, max_age = create_session(user["id"], remember_me=remember_me, ip=client_ip, user_agent=user_agent)
+            cookie_header = (
+                f"{SESSION_COOKIE_NAME}={raw_token}; Max-Age={max_age}; Path=/; "
+                f"SameSite=Lax; HttpOnly"
+            )
+            self._send_json({"success": True, "user": user}, set_cookie=cookie_header)
+            return
+
+        # 3. Logout
+        if path == "/api/auth/logout":
+            token = self._get_cookie_session()
+            if token:
+                revoke_session(token)
+            cookie_header = f"{SESSION_COOKIE_NAME}=; Max-Age=0; Path=/; SameSite=Lax; HttpOnly"
+            self._send_json({"success": True}, set_cookie=cookie_header)
+            return
+
+        # As demais ações POST exigem usuário logado e ativo
+        current_user = self._require_auth()
+        if not current_user:
+            return
+
+        # Rotas exclusivas de Admin
+        if path == "/api/admin/users/status":
+            if current_user.get("role") != "admin":
+                self._send_json({"error": "Acesso restrito ao administrador."}, status=403)
+                return
+            target_id = int(data.get("user_id", 0))
+            new_status = str(data.get("status", "")).strip()
+            new_role = data.get("role")
+            ok, err = update_user_status(target_id, new_status, new_role)
+            if ok:
+                self._send_json({"success": True, "message": "Status do usuário atualizado!"})
+            else:
+                self._send_json({"error": err or "Erro ao atualizar usuário."}, status=400)
+            return
+
+        if path == "/api/admin/users/delete":
+            if current_user.get("role") != "admin":
+                self._send_json({"error": "Acesso restrito ao administrador."}, status=403)
+                return
+            target_id = int(data.get("user_id", 0))
+            ok, err = delete_user(target_id)
+            if ok:
+                self._send_json({"success": True, "message": "Usuário excluído!"})
+            else:
+                self._send_json({"error": err or "Erro ao excluir usuário."}, status=400)
+            return
+
         db = DBManager(DB_PATH)
         try:
+            if path == "/api/actions/cut":
+                url = (data.get("url") or "").strip()
+                if not url:
+                    self._send_json({"error": "URL do vídeo é obrigatória."}, status=400)
+                    return
+                preset = data.get("preset", "biblico")
+                count = int(data.get("count", 3))
+
+                from src.integrations.videoflow_client import VideoFlowClient
+                client = VideoFlowClient()
+                if not client.is_online():
+                    self._send_json({"error": "VideoFlow está offline ou inacessível."}, status=503)
+                    return
+
+                try:
+                    job = client.request_cuts(
+                        source_url=url,
+                        cut_mode="highlights",
+                        niche_preset=preset,
+                        max_clips=count,
+                        publish_mode="draft"
+                    )
+                    job_id = job.get("job_id")
+                    if not job_id:
+                        self._send_json({"error": "VideoFlow não retornou job_id válido."}, status=500)
+                        return
+
+                    _ACTIVE_CUT_JOBS[job_id] = {
+                        "job_id": job_id,
+                        "status": "processing",
+                        "url": url,
+                        "preset": preset,
+                        "started_at": datetime.now(timezone.utc).isoformat(),
+                        "post_ids": []
+                    }
+
+                    def _monitor():
+                        try:
+                            res = client.wait_for_job(job_id, timeout_seconds=900)
+                            m_db = DBManager(DB_PATH)
+                            try:
+                                post_ids = client.import_to_bible_reels(res, m_db)
+                                _ACTIVE_CUT_JOBS[job_id]["status"] = "completed"
+                                _ACTIVE_CUT_JOBS[job_id]["post_ids"] = post_ids
+                                _ACTIVE_CUT_JOBS[job_id]["message"] = f"{len(post_ids)} corte(s) importado(s) com sucesso!"
+                            finally:
+                                m_db.close()
+                        except Exception as e:
+                            log.error(f"Erro no monitoramento do corte {job_id}: {e}")
+                            _ACTIVE_CUT_JOBS[job_id]["status"] = "failed"
+                            _ACTIVE_CUT_JOBS[job_id]["error"] = str(e)
+
+                    threading.Thread(target=_monitor, daemon=True).start()
+
+                    self._send_json({
+                        "success": True,
+                        "job_id": job_id,
+                        "message": f"Pedido enviado com sucesso ao VideoFlow (Job #{job_id[:8]})!"
+                    })
+                    return
+                except Exception as exc:
+                    log.error(f"Falha ao solicitar corte no VideoFlow: {exc}")
+                    self._send_json({"error": str(exc)}, status=400)
+                    return
+
             if path == "/api/actions/collect":
                 source = data.get("source", "both")
                 count = int(data.get("count", 1))
@@ -394,8 +669,33 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                     from main import step_collect, step_process, step_media
                     if source in ("saint", "santo"):
                         from main import run_saint_pipeline
-                        run_saint_pipeline(publisher=pub, make_video=True, dispatch=False)
+                        t_date = None
+                        t_raw = data.get("target_date") or data.get("date")
+                        if t_raw:
+                            try:
+                                t_date = datetime.strptime(str(t_raw).strip(), "%Y-%m-%d").date()
+                            except Exception:
+                                pass
+                        run_saint_pipeline(target_date=t_date, publisher=pub, make_video=True, dispatch=False)
                         self._send_json({"success": True, "message": "Pipeline do Santo do Dia executado até a renderização do vídeo final!"})
+                        return
+
+                    if source in ("novena", "novenas"):
+                        from main import run_novena_pipeline
+                        pid = run_novena_pipeline(publisher=pub, make_video=True, dispatch=False)
+                        if pid:
+                            self._send_json({"success": True, "message": f"Novena Litúrgica gerada e renderizada com sucesso (Post #{pid})!", "rendered_post_ids": [pid]})
+                        else:
+                            self._send_json({"success": False, "error": "Nenhuma novena litúrgica ativa no momento."}, status=400)
+                        return
+
+                    if source in ("prayer", "prayers", "oracao", "oracoes", "psalm", "salmo"):
+                        from main import run_prayer_pipeline
+                        pid = run_prayer_pipeline(source=source, publisher=pub, make_video=True, dispatch=False)
+                        if pid:
+                            self._send_json({"success": True, "message": f"Oração/Salmo gerado e renderizado com sucesso (Post #{pid})!", "rendered_post_ids": [pid]})
+                        else:
+                            self._send_json({"success": False, "error": "Falha ao gerar post de oração/salmo."}, status=500)
                         return
 
                     collected = step_collect(db, source=source, count=count, theme=theme)
@@ -416,6 +716,12 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
 
                 if source in ("saint", "santo"):
                     collect_saint_of_day(db)
+                elif source in ("novena", "novenas"):
+                    from src.collector.saints import collect_novena_of_day
+                    collect_novena_of_day(db)
+                elif source in ("psalm", "salmo", "salmos"):
+                    from src.collector.liturgy import collect_psalm_of_day
+                    collect_psalm_of_day(db)
                 elif source in ("gospel", "evangelho", "liturgia"):
                     collect_gospel_of_day(db)
                 elif source in ("prayer", "prayers", "oracao", "oracoes"):
@@ -444,7 +750,7 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
             if path == "/api/actions/saint":
                 pub = data.get("publisher") or DEFAULT_PUBLISHER
                 media_format = data.get("format") or ("video" if data.get("make_video", True) else "image")
-                target_date_raw = data.get("target_date")
+                target_date_raw = data.get("target_date") or data.get("date")
                 schedule_time = data.get("schedule_time")
                 auto_publish = bool(data.get("auto_publish", False)) or bool(schedule_time)
 
@@ -481,12 +787,15 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
 
                 # Regra: Santo do Dia SEMPRE gera Carrossel (Instagram) + Vídeo vertical multi-cena (TikTok/YT)
                 from src.media_gen.carousel_builder import generate_saint_carousel, build_saint_narration_text
+                from src.collector.saints import get_saint_images
+                saint_imgs = get_saint_images(saint["name"], count=5, target_date=target_date)
                 slides = generate_saint_carousel(
                     post_id=post_id,
                     saint_name=saint["name"],
                     title_hook=saint.get("quote", ""),
                     story_text=saint.get("history", ""),
-                    prayer_text=saint.get("prayer", "")
+                    prayer_text=saint.get("prayer", ""),
+                    bg_image_paths=saint_imgs
                 )
                 img_path = slides[0] if slides else (OUTPUT_IMAGES / f"post_{post_id:04d}.png")
                 for s in slides:
@@ -507,7 +816,7 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                 try:
                     scenes_dir = slides[0].parent / "scenes" if slides else None
                     v_scenes = [scenes_dir / f"scene_{i+1:02d}.png" for i in range(len(slides))] if (scenes_dir and scenes_dir.is_dir()) else slides
-                    vid = generate_video_from_image(img_path, slides=v_scenes, narration_text=saint_narration)
+                    vid = generate_video_from_image(img_path, slides=v_scenes, narration_text=saint_narration, theme="saint")
                     if vid:
                         vid_path_str = str(vid)
                 except Exception as e_vid:
@@ -568,6 +877,52 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                     "video_url": f"/media/videos/{Path(vid_path_str).name}" if vid_path_str else None,
                     "message": msg
                 })
+                return
+
+            if path == "/api/actions/novena":
+                pub = data.get("publisher") or DEFAULT_PUBLISHER
+                make_video = bool(data.get("make_video", True))
+                from main import run_novena_pipeline
+                pid = run_novena_pipeline(publisher=pub, make_video=make_video, dispatch=False)
+                if pid:
+                    self._send_json({
+                        "success": True,
+                        "post_id": pid,
+                        "message": f"Post #{pid} da Novena Litúrgica gerado com sucesso!",
+                        "video_url": f"/media/videos/post_{pid:04d}.mp4" if make_video else None,
+                        "image_url": f"/media/images/post_{pid:04d}.png"
+                    })
+                else:
+                    self._send_json({"success": False, "error": "Nenhuma novena litúrgica ativa encontrada para hoje."}, status=400)
+                return
+
+            if path == "/api/actions/prayer":
+                pub = data.get("publisher") or DEFAULT_PUBLISHER
+                make_video = bool(data.get("make_video", True))
+                source_kind = data.get("source") or "prayer"
+                from main import run_prayer_pipeline
+                pid = run_prayer_pipeline(source=source_kind, publisher=pub, make_video=make_video, dispatch=False)
+                if pid:
+                    self._send_json({
+                        "success": True,
+                        "post_id": pid,
+                        "message": f"Post #{pid} ({source_kind}) gerado com sucesso!",
+                        "video_url": f"/media/videos/post_{pid:04d}.mp4" if make_video else None,
+                        "image_url": f"/media/images/post_{pid:04d}.png"
+                    })
+                else:
+                    self._send_json({"success": False, "error": f"Falha ao gerar post para {source_kind}."}, status=500)
+                return
+
+            if path == "/api/actions/carousel":
+                src = data.get("source") or "gospel"
+                pub = data.get("publisher") or DEFAULT_PUBLISHER
+                from main import run_carousel_pipeline
+                ok = run_carousel_pipeline(source=src, publisher=pub)
+                if ok:
+                    self._send_json({"success": True, "message": f"Carrossel 4:5 ({src}) publicado com sucesso no feed do Instagram!"})
+                else:
+                    self._send_json({"success": False, "error": f"Falha ao publicar carrossel ({src}) no Instagram."}, status=500)
                 return
 
             if path == "/api/actions/schedule-post":
@@ -666,7 +1021,7 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                     verse_scenes = []
 
                     if is_saint:
-                        from src.collector.saints import get_saint_for_date
+                        from src.collector.saints import get_saint_for_date, get_saint_images
                         from src.media_gen.carousel_builder import generate_saint_carousel, build_saint_narration_text
                         import re
                         target_date = None
@@ -681,12 +1036,14 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                         story_text = saint_meta.get("history", "") or raw_t
                         prayer_text = saint_meta.get("prayer", "")
 
+                        saint_imgs = get_saint_images(clean_name, count=5, target_date=target_date)
                         slides = generate_saint_carousel(
                             post_id=post["id"],
                             saint_name=clean_name,
                             title_hook=title_hook,
                             story_text=story_text,
-                            prayer_text=prayer_text
+                            prayer_text=prayer_text,
+                            bg_image_paths=saint_imgs
                         )
                         img_path = slides[0] if slides else (OUTPUT_IMAGES / f"post_{post['id']:04d}.png")
                         vid_target = img_path
@@ -722,15 +1079,6 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                 self._send_json({"success": True, "rendered": rendered, "post_ids": [p["id"] for p in posts]})
                 return
 
-            if path == "/api/actions/dispatch":
-                items = db.get_pending_queue(limit=10)
-                sent = 0
-                for q in items:
-                    cur = db.conn.execute("SELECT * FROM posts WHERE id = ?", (q["post_id"],))
-                    row = cur.fetchone()
-                    if not row:
-                        continue
-                    post = dict(row)
             if path == "/api/actions/dispatch":
                 items = db.get_pending_queue(limit=10)
                 sent = 0
@@ -831,12 +1179,41 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                     self._send_json({"success": False, "error": f"Falha ao enviar post #{post_id} via {target_name}. Verifique os logs."}, status=500)
                 return
 
+            if path == "/api/actions/queue-remove":
+                queue_id = data.get("queue_id")
+                clear_all = bool(data.get("clear_all", False))
+                if clear_all:
+                    cur = db.conn.execute("DELETE FROM queue WHERE status IN ('pending', 'failed')")
+                    deleted = cur.rowcount
+                    db.conn.commit()
+                    self._send_json({"success": True, "message": f"{deleted} post(s) não disparado(s) removido(s) da fila!", "deleted": deleted})
+                    return
+                elif queue_id:
+                    cur = db.conn.execute("DELETE FROM queue WHERE id = ?", (int(queue_id),))
+                    deleted = cur.rowcount
+                    db.conn.commit()
+                    if deleted > 0:
+                        self._send_json({"success": True, "message": f"Item #{queue_id} removido da fila com sucesso!"})
+                    else:
+                        self._send_json({"success": False, "error": f"Item #{queue_id} não encontrado na fila."}, status=404)
+                    return
+                else:
+                    self._send_json({"success": False, "error": "Parâmetro queue_id ou clear_all obrigatório."}, status=400)
+                    return
+
+            if path == "/api/actions/sync-metrics":
+                from src.analytics.metrics_collector import collect_buffer_metrics
+                summary = collect_buffer_metrics(db)
+                self._send_json({"success": True, "message": "Métricas sincronizadas com sucesso!", "summary": summary})
+                return
+
             self._send_json({"error": "Endpoint não encontrado"}, status=404)
         finally:
             db.close()
 
 
 def run_web_server(port: int = 5000) -> None:
+    init_auth_db()
     STATIC_DIR.mkdir(parents=True, exist_ok=True)
     server_address = ("0.0.0.0", port)
     httpd = ThreadingHTTPServer(server_address, BibleReelsHandler)

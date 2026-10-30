@@ -125,8 +125,9 @@ def fetch_liturgy_of_day(target_date: date | None = None) -> dict[str, Any] | No
                         ev_body_paras.append(p)
 
             evangelho_text = " ".join(ev_body_paras).strip()
-            # Remove numeração de versículos no meio do texto (ex: "1 o Senhor escolheu... 2 E dizia...")
-            evangelho_text = re.sub(r'(?<=\s)\d+\s+(?=[A-ZÀ-Úa-zà-ú])', '', evangelho_text).strip()
+            # Remove numeração de versículos no meio do texto (ex: "1 o Senhor escolheu...", "39 \"Ficai certos...", ": 39 \"")
+            evangelho_text = re.sub(r'(?<=\s)\d+\s*(?=[\"“«A-ZÀ-Úa-zà-ú])', '', evangelho_text).strip()
+            evangelho_text = re.sub(r'(?<=[:—–-])\s*\d+\s*(?=[\"“«A-ZÀ-Úa-zà-ú])', ' ', evangelho_text).strip()
 
             evangelho_data = {
                 "reference": ref_ev or "Evangelho do Dia",

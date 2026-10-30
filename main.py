@@ -25,10 +25,17 @@ from config.settings import DB_PATH, POSTS_PER_RUN, DEFAULT_PUBLISHER, OUTPUT_IM
 from src.collector.bible_api import collect_verses
 from src.collector.local_quotes import collect_quotes, collect_classic_prayers
 from src.collector.liturgy import collect_gospel_of_day, collect_psalm_of_day
-from src.collector.saints import collect_saint_of_day, get_saint_for_date, get_saint_image, check_active_novena
+from src.collector.saints import collect_saint_of_day, get_saint_for_date, get_saint_image, check_active_novena, collect_novena_of_day
 from src.media_gen.image_builder import generate_post_image
 from src.media_gen.video_builder import generate_video_from_image
-from src.processor.ai_formatter import format_verse, format_saint_post, format_gospel_post, format_community_prayer_post
+from src.processor.ai_formatter import (
+    format_verse,
+    format_saint_post,
+    format_gospel_post,
+    format_community_prayer_post,
+    format_novena_post,
+    format_prayer_post
+)
 from src.processor.db_manager import DBManager
 from src.publisher.postproxy import PostproxyPublisher, publish_via_postproxy
 from src.publisher.webhook import publish_via_webhook
@@ -72,6 +79,14 @@ def step_collect(db: DBManager, source: str = "both", count: int = 5, theme: str
             collected_items = [{"id": res["verse_id"], "reference": res.get("reference"), "source": "gospel"}]
     elif source in ("prayer", "prayers", "oracao", "oracoes"):
         collected_items = collect_classic_prayers(db, count=count)
+    elif source in ("psalm", "salmo", "salmos"):
+        res = collect_psalm_of_day(db, target_date=date.today())
+        if res and res.get("verse_id"):
+            collected_items = [{"id": res["verse_id"], "reference": res.get("reference"), "source": "psalm"}]
+    elif source in ("novena", "novenas"):
+        res = collect_novena_of_day(db, target_date=date.today())
+        if res and res.get("verse_id"):
+            collected_items = [{"id": res["verse_id"], "reference": res.get("saint_name"), "source": "novena"}]
     elif source in ("community", "intercessao", "pedidos"):
         # Coleta pedidos de oração de seguidores
         recent = db.get_recent_prayer_requests(limit=10)
@@ -104,8 +119,6 @@ def step_process(db: DBManager, limit: int = 5, publisher: str = DEFAULT_PUBLISH
     for item in unused:
         log.info(f"Processando verso ID={item['id']}: {item['reference']} (Origem: {item.get('source')}, Tema: {theme})")
         if item.get("source") == "saint":
-            import re
-            from datetime import date
             target_d = None
             date_match = re.search(r"\((\d{1,2})/(\d{1,2})\)", item["reference"])
             if date_match:
@@ -114,6 +127,17 @@ def step_process(db: DBManager, limit: int = 5, publisher: str = DEFAULT_PUBLISH
             ai_data = format_saint_post(item["reference"], item["text"], saint_metadata=saint_meta, is_eve=True)
         elif item.get("source") == "gospel":
             ai_data = format_gospel_post(item["reference"], item["text"], celebration=item.get("translation", ""))
+        elif item.get("source") == "novena":
+            nov_info = check_active_novena(date.today()) or {
+                "saint_name": item["reference"].split("(")[0].replace("Novena de", "").strip(),
+                "novena_day": 1,
+                "total_days": 9,
+                "feast_date": "",
+                "saint_data": {"prayer": item["text"]}
+            }
+            ai_data = format_novena_post(nov_info)
+        elif item.get("source") in ("prayer", "psalm"):
+            ai_data = format_prayer_post(item["reference"], item["text"])
         elif item.get("source") == "community":
             recent = db.get_recent_prayer_requests(limit=10)
             ai_data = format_community_prayer_post(recent)
@@ -189,7 +213,7 @@ def step_media(db: DBManager, limit: int = 5, make_video: bool = True, post_id: 
         ref = v_row["reference"] if v_row else "Reflexão"
         source = v_row["source"] if v_row else ""
 
-        if source == "saint" or any(k in ref.lower() for k in ("santo", "santa", "são", "sao", "senhora")):
+        if source == "saint" or (source not in ("novena", "prayer", "psalm") and any(k in ref.lower() for k in ("santo", "santa", "são", "sao", "senhora"))):
             from src.media_gen.carousel_builder import generate_saint_carousel, build_saint_narration_text
             target_date = None
             date_match = re.search(r"\((\d{1,2})/(\d{1,2})\)", ref)
@@ -221,9 +245,126 @@ def step_media(db: DBManager, limit: int = 5, make_video: bool = True, post_id: 
                     bg_image_path=get_saint_image(clean_saint_name, target_date=target_date)
                 )
             )
-            vid_target = img_path
-            slides_for_video = v_scenes
+            from src.collector.saints import get_saint_images
+            from src.media_gen.image_builder import generate_saint_video_scenes
+            saint_imgs = get_saint_images(clean_saint_name)
+            saint_vscenes = generate_saint_video_scenes(
+                post_id=post["id"],
+                saint_name=clean_saint_name,
+                title_hook=title_hook,
+                saint_images=saint_imgs,
+                reference=clean_saint_name
+            )
+            vid_target = saint_vscenes[0]
+            slides_for_video = saint_vscenes
             narration_text = build_saint_narration_text(clean_saint_name, title_hook, story_text, prayer_text)
+        elif source == "gospel" or "evangelho" in ref.lower():
+            from src.media_gen.carousel_builder import generate_gospel_carousel
+            from src.media_gen.tts import build_gospel_narration_text
+
+            hook_title = post.get("hook_title") or ""
+            caption = post.get("caption") or ""
+
+            # Extrai reflexão pastoral da legenda se disponível
+            homily = ""
+            if "Reflexão:" in caption:
+                m_reflec = re.search(r"Reflexão:\s*([^\n\r]+)", caption)
+                if m_reflec:
+                    homily = m_reflec.group(1).strip()
+            if not homily and hook_title:
+                homily = hook_title
+
+            slides = generate_gospel_carousel(
+                post_id=post["id"],
+                reference=ref,
+                full_text=post["formatted_text"],
+                homily_reflection=homily,
+                hook_title=hook_title,
+                visual_prompt=post.get("visual_prompt", "")
+            )
+            scenes_dir = slides[0].parent / "scenes" if slides else None
+            v_scenes = [scenes_dir / f"scene_{i+1:02d}.png" for i in range(len(slides))] if (scenes_dir and scenes_dir.is_dir()) else slides
+            img_path = (scenes_dir / "scene_01.png") if (scenes_dir and (scenes_dir / "scene_01.png").is_file()) else (slides[0] if slides else OUTPUT_IMAGES / f"post_{post['id']:04d}.png")
+            from src.media_gen.image_builder import generate_video_frame
+            video_frame = generate_video_frame(
+                post_id=post["id"],
+                reference=ref,
+                badge_text="EVANGELHO DO DIA",
+                hook_title=hook_title or homily,
+                bg_image_path=scenes_dir / "scene_01.png" if (scenes_dir and (scenes_dir / "scene_01.png").is_file()) else None
+            )
+            vid_target = video_frame
+            slides_for_video = [video_frame]
+            narration_text = build_gospel_narration_text(
+                reference=ref,
+                text=post["formatted_text"],
+                homily_reflection=homily,
+                concise=True
+            )
+        elif source == "novena" or "novena" in ref.lower():
+            from src.media_gen.carousel_builder import generate_prayer_carousel
+            from src.media_gen.tts import build_novena_narration_text
+
+            hook_title = post.get("hook_title") or ""
+            slides = generate_prayer_carousel(
+                post_id=post["id"],
+                reference=ref,
+                full_text=post["formatted_text"],
+                hook_title=hook_title,
+                visual_prompt=post.get("visual_prompt", ""),
+                source="novena"
+            )
+            scenes_dir = slides[0].parent / "scenes" if slides else None
+            v_scenes = [scenes_dir / f"scene_{i+1:02d}.png" for i in range(len(slides))] if (scenes_dir and scenes_dir.is_dir()) else slides
+            img_path = (scenes_dir / "scene_01.png") if (scenes_dir and (scenes_dir / "scene_01.png").is_file()) else (slides[0] if slides else OUTPUT_IMAGES / f"post_{post['id']:04d}.png")
+            from src.media_gen.image_builder import generate_video_frame
+            video_frame = generate_video_frame(
+                post_id=post["id"],
+                reference=ref,
+                badge_text="NOVENA",
+                hook_title=hook_title,
+                bg_image_path=scenes_dir / "scene_01.png" if (scenes_dir and (scenes_dir / "scene_01.png").is_file()) else None
+            )
+            vid_target = video_frame
+            slides_for_video = [video_frame]
+            narration_text = build_novena_narration_text(
+                reference=ref,
+                text=post["formatted_text"],
+                hook_title=hook_title,
+                concise=True
+            )
+        elif source in ("prayer", "psalm") or any(k in ref.lower() for k in ("salmo", "oração", "oracao")):
+            from src.media_gen.carousel_builder import generate_prayer_carousel
+            from src.media_gen.tts import build_prayer_narration_text
+
+            hook_title = post.get("hook_title") or ""
+            slides = generate_prayer_carousel(
+                post_id=post["id"],
+                reference=ref,
+                full_text=post["formatted_text"],
+                hook_title=hook_title,
+                visual_prompt=post.get("visual_prompt", ""),
+                source=source or "prayer"
+            )
+            scenes_dir = slides[0].parent / "scenes" if slides else None
+            v_scenes = [scenes_dir / f"scene_{i+1:02d}.png" for i in range(len(slides))] if (scenes_dir and scenes_dir.is_dir()) else slides
+            img_path = (scenes_dir / "scene_01.png") if (scenes_dir and (scenes_dir / "scene_01.png").is_file()) else (slides[0] if slides else OUTPUT_IMAGES / f"post_{post['id']:04d}.png")
+            from src.media_gen.image_builder import generate_video_frame
+            video_frame = generate_video_frame(
+                post_id=post["id"],
+                reference=ref,
+                badge_text="ORAÇÃO & SALMO",
+                hook_title=hook_title,
+                bg_image_path=scenes_dir / "scene_01.png" if (scenes_dir and (scenes_dir / "scene_01.png").is_file()) else None
+            )
+            vid_target = video_frame
+            slides_for_video = [video_frame]
+            narration_text = build_prayer_narration_text(
+                reference=ref,
+                text=post["formatted_text"],
+                hook_title=hook_title,
+                concise=True
+            )
         else:
             from src.collector.backgrounds import get_thematic_background
             bg_img = get_thematic_background(post.get("visual_prompt", ""), reference=ref)
@@ -231,7 +372,7 @@ def step_media(db: DBManager, limit: int = 5, make_video: bool = True, post_id: 
                 post_id=post["id"],
                 text=post["formatted_text"],
                 reference=ref,
-                badge_text="EVANGELHO DO DIA" if source == "gospel" else ("ORAÇÃO DA COMUNIDADE" if source == "community" else None),
+                badge_text="ORAÇÃO DA COMUNIDADE" if source == "community" else None,
                 bg_image_path=bg_img
             )
             hook_title = post.get("hook_title") or ""
@@ -243,22 +384,22 @@ def step_media(db: DBManager, limit: int = 5, make_video: bool = True, post_id: 
                 post.get("visual_prompt", ""),
                 hook_title=hook_title
             )
-            vid_target = verse_scenes[0] if verse_scenes else img_path
-            slides_for_video = verse_scenes
-            if source == "gospel":
-                from src.media_gen.tts import build_gospel_narration_text
-                narration_text = build_gospel_narration_text(
-                    reference=ref,
-                    text=post["formatted_text"],
-                    homily_reflection=post.get("hook_title", "")
-                )
-            else:
-                from src.media_gen.tts import build_verse_narration_text
-                narration_text = build_verse_narration_text(
-                    post["formatted_text"],
-                    reference=ref,
-                    hook_title=hook_title
-                )
+            from src.media_gen.image_builder import generate_video_frame
+            video_frame = generate_video_frame(
+                post_id=post["id"],
+                reference=ref,
+                badge_text="ORAÇÃO DA COMUNIDADE" if source == "community" else "VERSÍCULO DO DIA",
+                hook_title=hook_title,
+                bg_image_path=bg_img
+            )
+            vid_target = video_frame
+            slides_for_video = [video_frame]
+            from src.media_gen.tts import build_verse_narration_text
+            narration_text = build_verse_narration_text(
+                post["formatted_text"],
+                reference=ref,
+                hook_title=hook_title
+            )
 
         vid_path_str = ""
         if make_video:
@@ -335,7 +476,7 @@ def step_dispatch(db: DBManager, platform: str | None = None, limit: int = 10, m
             ref = v_row["reference"] if v_row else "Reflexão"
             source = v_row["source"] if v_row else ""
 
-            if source == "saint" or any(k in ref.lower() for k in ("santo", "santa", "são", "sao", "senhora")):
+            if source == "saint" or (source not in ("novena", "prayer", "psalm") and any(k in ref.lower() for k in ("santo", "santa", "são", "sao", "senhora"))):
                 from src.media_gen.carousel_builder import generate_saint_carousel, build_saint_narration_text
                 saint_meta = get_saint_for_date()
                 title_hook = saint_meta.get("quote", "") or post["formatted_text"].split("\n\n—")[0]
@@ -437,18 +578,41 @@ def run_saint_pipeline(
     try:
         t_date = target_date or (date.today() + timedelta(days=1) if datetime.now().hour >= 18 else date.today())
 
-        # Idempotência: verifica se post já existe para a data do santo
-        has_saint, s_post = db.has_saint_post_for_date(t_date)
+        # 1. Identifica o Santo canônico correto para a data
+        from src.collector.saints import get_saint_for_date
+        saint_info = get_saint_for_date(t_date)
+        saint_name = saint_info.get("name") if saint_info else None
+
+        # 2. Idempotência estrita: verifica se o santo correto já foi gerado ou enviado
+        has_saint, s_post = db.has_saint_post_for_date(t_date, saint_name=saint_name)
         if has_saint and s_post:
-            if s_post.get("status") == "published":
+            is_already_sent = (
+                s_post.get("status") == "published"
+                or s_post.get("is_sent")
+                or s_post.get("queue_status") == "sent"
+            )
+            if is_already_sent:
                 log.info(
-                    f"Post do Santo ({t_date.strftime('%d/%m')}) já foi publicado "
+                    f"Post do Santo correto ({saint_name or t_date.strftime('%d/%m')}) já foi publicado/enviado "
                     f"(Post #{s_post['id']}). Ignorando execução para evitar post duplicado."
                 )
                 return
             elif s_post.get("status") == "created":
+                # Verifica se a fila já enviou
+                q_sent = db.conn.execute(
+                    "SELECT id FROM queue WHERE post_id = ? AND status = 'sent'",
+                    (s_post['id'],)
+                ).fetchone()
+                if q_sent:
+                    db.mark_post_published(s_post['id'])
+                    log.info(
+                        f"Post do Santo correto ({saint_name or t_date.strftime('%d/%m')}) já consta como enviado na fila "
+                        f"(Post #{s_post['id']}). Ignorando execução."
+                    )
+                    return
+
                 log.info(
-                    f"Post do Santo ({t_date.strftime('%d/%m')}) já estava gerado "
+                    f"Post do Santo correto ({saint_name or t_date.strftime('%d/%m')}) já estava gerado "
                     f"(Post #{s_post['id']}). Despachando agora para publicação..."
                 )
                 q_item = db.conn.execute("SELECT id FROM queue WHERE post_id = ? AND status = 'pending'", (s_post['id'],)).fetchone()
@@ -459,8 +623,8 @@ def run_saint_pipeline(
                 return
 
         saint = collect_saint_of_day(db, target_date=t_date, force=True)
-        if not saint:
-            log.error(f"Falha ao identificar Santo do Dia para {t_date.strftime('%d/%m')}.")
+        if not saint or not saint.get("verse_id"):
+            log.error(f"Falha ao identificar Santo do Dia para {t_date.strftime('%d/%m')}. Pipeline abortado sem gerar conteúdo substituto.")
             return
 
         verse_id = saint.get("verse_id")
@@ -505,7 +669,17 @@ def run_saint_pipeline(
         )
 
         vid_path_str = ""
-        # Santo do Dia gera simultaneamente o vídeo sequencial multi-cena para TikTok e YouTube Shorts
+        # Santo do Dia gera vídeo sequencial com múltiplas pinturas sacras alternadas
+        from src.collector.saints import get_saint_images
+        from src.media_gen.image_builder import generate_saint_video_scenes
+        saint_imgs = get_saint_images(saint["name"])
+        saint_vscenes = generate_saint_video_scenes(
+            post_id=post_id,
+            saint_name=saint["name"],
+            title_hook=saint.get("quote", ""),
+            saint_images=saint_imgs,
+            reference=ref_label
+        )
         saint_narration = build_saint_narration_text(
             saint_name=saint["name"],
             title_hook=saint.get("quote", ""),
@@ -514,7 +688,7 @@ def run_saint_pipeline(
         )
         if make_video:
             try:
-                vid_path = generate_video_from_image(img_path, slides=v_scenes, narration_text=saint_narration)
+                vid_path = generate_video_from_image(saint_vscenes[0], slides=saint_vscenes, narration_text=saint_narration, theme="saint")
                 if vid_path:
                     vid_path_str = str(vid_path)
             except Exception as e_vid:
@@ -531,6 +705,228 @@ def run_saint_pipeline(
         db.close()
 
 
+def run_novena_pipeline(
+    target_date: date | None = None,
+    publisher: str = DEFAULT_PUBLISHER,
+    make_video: bool = True,
+    dispatch: bool = False
+) -> int | None:
+    """Executa o pipeline completo para a Novena Litúrgica ativa."""
+    log.info("=== [PIPELINE ESPECIAL] Novena Litúrgica ===")
+    db = DBManager(DB_PATH)
+    try:
+        t_date = target_date or date.today()
+        nov = collect_novena_of_day(db, target_date=t_date)
+        if not nov:
+            log.info(f"Nenhuma novena litúrgica ativa para {t_date.strftime('%d/%m')}.")
+            return None
+
+        post_ids = step_process(db, limit=1, publisher=publisher, source="novena")
+        if not post_ids:
+            return None
+        pid = post_ids[0]
+        step_media(db, limit=1, make_video=make_video, post_id=pid)
+        if dispatch:
+            step_dispatch(db, platform=publisher, limit=1, make_video=make_video, post_id=pid)
+        log.info(f"Novena ({nov['saint_name']} - Dia {nov['novena_day']}) processada com sucesso! Post #{pid}")
+        return pid
+    finally:
+        db.close()
+
+
+def run_prayer_pipeline(
+    source: str = "prayer",
+    publisher: str = DEFAULT_PUBLISHER,
+    make_video: bool = True,
+    dispatch: bool = False
+) -> int | None:
+    """Executa o pipeline completo para Orações Clássicas ou Salmos."""
+    log.info(f"=== [PIPELINE ESPECIAL] Oração Clássica / Salmo ({source}) ===")
+    db = DBManager(DB_PATH)
+    try:
+        if source in ("psalm", "salmo", "salmos"):
+            item = collect_psalm_of_day(db)
+        else:
+            item = collect_classic_prayers(db, count=1)
+        if not item:
+            log.warning("Nenhuma oração ou salmo disponível para coleta.")
+            return None
+
+        post_ids = step_process(db, limit=1, publisher=publisher, source="psalm" if source in ("psalm", "salmo", "salmos") else "prayer")
+        if not post_ids:
+            return None
+        pid = post_ids[0]
+        step_media(db, limit=1, make_video=make_video, post_id=pid)
+        if dispatch:
+            step_dispatch(db, platform=publisher, limit=1, make_video=make_video, post_id=pid)
+        log.info(f"Oração/Salmo ({source}) processado com sucesso! Post #{pid}")
+        return pid
+    finally:
+        db.close()
+
+def run_carousel_pipeline(
+    source: str = "gospel",
+    target_date: date | None = None,
+    publisher: str = DEFAULT_PUBLISHER
+) -> bool:
+    """Publica especificamente o Carrossel 4:5 das lâminas para o feed do Instagram."""
+    log.info(f"=== [PIPELINE CARROSSEL 4:5] Origem: {source} ===")
+    db = DBManager(DB_PATH)
+    t_date = target_date or date.today()
+
+    try:
+        target_post = None
+        if source == "gospel":
+            cur = db.conn.execute(
+                """SELECT p.*, v.reference, v.source as verse_source
+                   FROM posts p
+                   JOIN verses v ON p.verse_id = v.id
+                   WHERE v.source = 'gospel' AND date(p.created_at) >= date('now', '-1 day')
+                   ORDER BY p.id DESC LIMIT 1"""
+            )
+            r = cur.fetchone()
+            if r:
+                target_post = dict(r)
+            else:
+                run_pipeline(source="gospel", count=1, make_video=True, publisher=publisher, dispatch_limit=0)
+                cur2 = db.conn.execute(
+                    """SELECT p.*, v.reference, v.source as verse_source
+                       FROM posts p
+                       JOIN verses v ON p.verse_id = v.id
+                       WHERE v.source = 'gospel'
+                       ORDER BY p.id DESC LIMIT 1"""
+                )
+                r2 = cur2.fetchone()
+                if r2:
+                    target_post = dict(r2)
+
+        elif source in ("saint", "santo"):
+            # Busca o post do Santo do Dia (gerado na véspera ou hoje)
+            cur = db.conn.execute(
+                """SELECT p.*, v.reference, v.source as verse_source
+                   FROM posts p
+                   JOIN verses v ON p.verse_id = v.id
+                   WHERE v.source = 'saint' AND date(p.created_at) >= date('now', '-2 days')
+                   ORDER BY p.id DESC LIMIT 1"""
+            )
+            r = cur.fetchone()
+            if r:
+                target_post = dict(r)
+            else:
+                run_saint_pipeline(target_date=t_date, publisher=publisher, make_video=False, dispatch=False)
+                cur2 = db.conn.execute(
+                    """SELECT p.*, v.reference, v.source as verse_source
+                       FROM posts p
+                       JOIN verses v ON p.verse_id = v.id
+                       WHERE v.source = 'saint'
+                       ORDER BY p.id DESC LIMIT 1"""
+                )
+                r2 = cur2.fetchone()
+                if r2:
+                    target_post = dict(r2)
+
+        elif source in ("prayer", "oracao", "oracoes"):
+            cur = db.conn.execute(
+                """SELECT p.*, v.reference, v.source as verse_source
+                   FROM posts p JOIN verses v ON p.verse_id = v.id
+                   WHERE v.source = 'prayer' AND date(p.created_at) >= date('now', '-1 day')
+                   ORDER BY p.id DESC LIMIT 1"""
+            )
+            r = cur.fetchone()
+            if r:
+                target_post = dict(r)
+            else:
+                run_prayer_pipeline(source="prayer", publisher=publisher, make_video=False, dispatch=False)
+                cur2 = db.conn.execute(
+                    """SELECT p.*, v.reference, v.source as verse_source
+                       FROM posts p JOIN verses v ON p.verse_id = v.id
+                       WHERE v.source = 'prayer'
+                       ORDER BY p.id DESC LIMIT 1"""
+                )
+                r2 = cur2.fetchone()
+                if r2:
+                    target_post = dict(r2)
+
+        elif source in ("psalm", "salmo", "salmos"):
+            cur = db.conn.execute(
+                """SELECT p.*, v.reference, v.source as verse_source
+                   FROM posts p JOIN verses v ON p.verse_id = v.id
+                   WHERE v.source = 'psalm' AND date(p.created_at) >= date('now', '-1 day')
+                   ORDER BY p.id DESC LIMIT 1"""
+            )
+            r = cur.fetchone()
+            if r:
+                target_post = dict(r)
+            else:
+                run_prayer_pipeline(source="psalm", publisher=publisher, make_video=False, dispatch=False)
+                cur2 = db.conn.execute(
+                    """SELECT p.*, v.reference, v.source as verse_source
+                       FROM posts p JOIN verses v ON p.verse_id = v.id
+                       WHERE v.source = 'psalm'
+                       ORDER BY p.id DESC LIMIT 1"""
+                )
+                r2 = cur2.fetchone()
+                if r2:
+                    target_post = dict(r2)
+
+        elif source in ("novena", "novenas"):
+            cur = db.conn.execute(
+                """SELECT p.*, v.reference, v.source as verse_source
+                   FROM posts p JOIN verses v ON p.verse_id = v.id
+                   WHERE v.source = 'novena' AND date(p.created_at) >= date('now', '-1 day')
+                   ORDER BY p.id DESC LIMIT 1"""
+            )
+            r = cur.fetchone()
+            if r:
+                target_post = dict(r)
+            else:
+                run_novena_pipeline(publisher=publisher, make_video=False, dispatch=False)
+                cur2 = db.conn.execute(
+                    """SELECT p.*, v.reference, v.source as verse_source
+                       FROM posts p JOIN verses v ON p.verse_id = v.id
+                       WHERE v.source = 'novena'
+                       ORDER BY p.id DESC LIMIT 1"""
+                )
+                r2 = cur2.fetchone()
+                if r2:
+                    target_post = dict(r2)
+
+        if not target_post:
+            log.warning(f"Nenhum post disponível para gerar carrossel da origem '{source}'.")
+            return False
+
+        # Verifica se as lâminas 4:5 do carrossel existem no disco
+        img_p = target_post.get("image_path") or ""
+        has_slides = False
+        if img_p:
+            p_img = Path(img_p)
+            c_dir = p_img.parent if "carousel_" in p_img.parent.name.lower() else (p_img.parent.parent if "carousel_" in p_img.parent.parent.name.lower() else None)
+            if c_dir:
+                slides = [s for s in c_dir.iterdir() if s.is_file() and s.name.startswith("slide_")]
+                if slides:
+                    has_slides = True
+
+        if not has_slides:
+            log.info(f"Lâminas do carrossel não encontradas para o Post #{target_post['id']}. Gerando agora...")
+            step_media(db, limit=1, make_video=False, post_id=target_post["id"])
+            target_post = dict(db.conn.execute("SELECT * FROM posts WHERE id = ?", (target_post["id"],)).fetchone())
+
+        from src.publisher.buffer_api import publish_via_buffer
+        ok = publish_via_buffer(target_post, target_service="instagram,tiktok", prefer_carousel=True)
+        if ok:
+            log.info(f"✅ Carrossel do Post #{target_post['id']} publicado com sucesso (Instagram Feed + TikTok Photo Mode)!")
+            return True
+        else:
+            log.error(f"❌ Falha ao publicar Carrossel do Post #{target_post['id']}.")
+            return False
+    except Exception as exc:
+        log.error(f"Erro no run_carousel_pipeline: {exc}")
+        return False
+    finally:
+        db.close()
+
+
+
 def run_pipeline(
     source: str = "both",
     count: int = POSTS_PER_RUN,
@@ -539,10 +935,9 @@ def run_pipeline(
     dispatch_limit: int | None = None,
     theme: str = "general"
 ) -> None:
-    # Se a fonte for Santo do Dia, delega diretamente para o pipeline dedicado de Santo
+    # Delegação para pipelines especializados
     if source in ("saint", "saints", "santo"):
         from datetime import timedelta
-        # Na véspera às 20:30, o santo de interesse é o do dia seguinte!
         target_saint_date = date.today() + timedelta(days=1)
         run_saint_pipeline(
             target_date=target_saint_date,
@@ -550,6 +945,12 @@ def run_pipeline(
             make_video=make_video,
             dispatch=True
         )
+        return
+    elif source in ("novena", "novenas"):
+        run_novena_pipeline(publisher=publisher, make_video=make_video, dispatch=True)
+        return
+    elif source in ("prayer", "prayers", "oracao", "oracoes", "psalm", "salmo"):
+        run_prayer_pipeline(source=source, publisher=publisher, make_video=make_video, dispatch=True)
         return
 
     db = DBManager(DB_PATH)
@@ -583,7 +984,10 @@ def check_and_catchup_missed_post(
     morning_end = datetime.combine(today, dtime(11, 59, 59)).astimezone()
 
     afternoon_start = datetime.combine(today, dtime(12, 0, 0)).astimezone()
-    afternoon_end = datetime.combine(today, dtime(17, 59, 59)).astimezone()
+    afternoon_end = datetime.combine(today, dtime(14, 59, 59)).astimezone()
+
+    novena_start = datetime.combine(today, dtime(15, 0, 0)).astimezone()
+    novena_end = datetime.combine(today, dtime(17, 59, 59)).astimezone()
 
     evening_start = datetime.combine(today, dtime(18, 0, 0)).astimezone()
     evening_end = datetime.combine(today, dtime(20, 29, 59)).astimezone()
@@ -641,6 +1045,26 @@ def check_and_catchup_missed_post(
                 log.error(f"❌ Falha ao executar post de recuperação do meio-dia: {exc}")
         return
 
+    if novena_start <= now <= novena_end:
+        from src.collector.saints import check_active_novena
+        nov = check_active_novena(today)
+        if nov:
+            has_novena, post_info = db.has_post_published_between(novena_start, novena_end, source="novena")
+            if has_novena and post_info:
+                pub_time = post_info.get("published_at", "")
+                log.info(f"✅ [OK] Post da Novena das 15:00 ({nov['saint_name']}) de hoje já foi publicado (Post #{post_info.get('id')} às {pub_time[:19]}).")
+            else:
+                log.warning(f"⚠️ [CATCH-UP] Horário da Novena (15:00 - {nov['saint_name']}) já passou e não foi enviado!")
+                log.info("🚀 Executando post de recuperação da Novena agora...")
+                try:
+                    run_novena_pipeline(publisher=publisher, make_video=make_video, dispatch=True)
+                    log.info("✅ Post de recuperação da Novena concluído com sucesso!")
+                except Exception as exc:
+                    log.error(f"❌ Falha ao executar post de recuperação da Novena: {exc}")
+        else:
+            log.info("ℹ️ Janela das 15:00: Nenhuma novena litúrgica ativa hoje.")
+        return
+
     if evening_start <= now <= evening_end:
         has_evening, post_info = db.has_post_published_between(evening_start, evening_end)
         if has_evening and post_info:
@@ -665,13 +1089,25 @@ def check_and_catchup_missed_post(
 
     if now >= saint_eve_start:
         tomorrow = today + timedelta(days=1)
-        has_saint, post_info = db.has_saint_post_for_date(tomorrow)
-        if not (has_saint and post_info and post_info.get("status") == "published"):
+        from src.collector.saints import get_saint_for_date
+        saint_info = get_saint_for_date(tomorrow)
+        saint_name = saint_info.get("name") if saint_info else None
+
+        has_saint, post_info = db.has_saint_post_for_date(tomorrow, saint_name=saint_name)
+        if not (has_saint and post_info):
             has_saint, post_info = db.has_post_published_between(saint_eve_start, saint_eve_end, source="saint")
 
-        if has_saint and post_info and post_info.get("status") == "published":
-            pub_time = post_info.get("published_at", "")
-            log.info(f"✅ [OK] Post do Santo da véspera ({tomorrow.strftime('%d/%m')}) já foi publicado (Post #{post_info.get('id')} às {pub_time[:19]}).")
+        is_already_sent = (
+            has_saint and post_info and (
+                post_info.get("status") == "published"
+                or post_info.get("is_sent")
+                or post_info.get("queue_status") == "sent"
+            )
+        )
+
+        if is_already_sent:
+            pub_time = post_info.get("published_at", "") or "enviado"
+            log.info(f"✅ [OK] Post do Santo da véspera ({saint_name or tomorrow.strftime('%d/%m')}) já foi publicado/enviado (Post #{post_info.get('id')} às {pub_time[:19]}).")
         else:
             log.warning(f"⚠️ [CATCH-UP] Horário de véspera do Santo ({tomorrow.strftime('%d/%m')}) já passou e post não foi enviado!")
             log.info("🚀 Executando post de Santo do Dia (Carrossel & Vídeo) agora...")
@@ -688,6 +1124,41 @@ def check_and_catchup_missed_post(
         return
 
 
+
+def run_videoflow_cut(
+    url: str,
+    preset: str = "biblico",
+    wait: bool = False,
+    count: int = 3,
+    publisher: str = DEFAULT_PUBLISHER,
+    db: DBManager = None
+) -> None:
+    """Solicita corte inteligente de vídeo ao VideoFlow e opcionalmente importa para o banco."""
+    from src.integrations.videoflow_client import VideoFlowClient
+    client = VideoFlowClient()
+    if not client.is_online():
+        log.warning("⚠️ Serviço VideoFlow não respondeu em http://localhost:8000. Verifique se o backend do VideoFlow está ativo.")
+
+    log.info(f"🎬 Solicitando cortes inteligentes para: {url} | Preset: {preset}")
+    try:
+        job = client.request_cuts(
+            source_url=url,
+            cut_mode="highlights",
+            niche_preset=preset,
+            max_clips=count,
+            publish_mode="draft",
+        )
+        job_id = job.get("job_id")
+        log.info(f"✅ Job registrado no VideoFlow! ID: {job_id}")
+
+        if wait and db:
+            log.info("⏳ Aguardando renderização do VideoFlow para importar clipes...")
+            job_data = client.wait_for_job(job_id)
+            post_ids = client.import_to_bible_reels(job_data, db)
+            log.info(f"✨ Importação concluída! {len(post_ids)} vídeo(s) importados para o Bible-Reels: {post_ids}")
+    except Exception as exc:
+        log.error(f"❌ Falha ao solicitar cortes no VideoFlow: {exc}")
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Bible Reels Content Automation Engine")
     parser.add_argument("--all", action="store_true", help="Executa todo o pipeline")
@@ -695,18 +1166,25 @@ def main() -> None:
     parser.add_argument("--process", action="store_true", help="Executa apenas etapa de processamento IA")
     parser.add_argument("--media", action="store_true", help="Executa apenas renderização de mídia")
     parser.add_argument("--dispatch", action="store_true", help="Dispara itens da fila de publicação")
-    parser.add_argument("--source", choices=["bible", "quotes", "both", "saint", "gospel", "prayer", "community"], default="both", help="Origem dos dados")
+    parser.add_argument("--source", choices=["bible", "quotes", "both", "saint", "gospel", "prayer", "psalm", "novena", "community"], default="both", help="Origem dos dados")
     parser.add_argument("--saint", action="store_true", help="Gera post completo do Santo do Dia (coleta, IA, arte e fila)")
+    parser.add_argument("--novena", action="store_true", help="Gera post da Novena Litúrgica ativa (Dia 1 a 9)")
     parser.add_argument("--gospel", action="store_true", help="Gera post do Evangelho do Dia (liturgia diária oficial)")
     parser.add_argument("--prayer", action="store_true", help="Gera post de Grandes Orações e Salmos clássicos")
+    parser.add_argument("--psalm", action="store_true", help="Gera post do Salmo Responsorial do Dia")
     parser.add_argument("--community", action="store_true", help="Gera post de Oração Comunitária com nomes de inscritos")
+    parser.add_argument("--carousel", action="store_true", help="Dispara a versão Carrossel 4:5 para o feed do Instagram")
     parser.add_argument("--count", type=int, default=POSTS_PER_RUN, help="Quantidade de itens")
     parser.add_argument("--no-video", action="store_true", help="Desativa renderização de vídeo MP4 (gera apenas imagem estática)")
     parser.add_argument("--video", action="store_true", default=True, help="Gera vídeo MP4 dinâmico com narração (ativo por padrão)")
     parser.add_argument("--publisher", choices=["all", "tiktok", "instagram_direct", "tiktok_direct", "webhook", "postproxy", "buffer"], default=DEFAULT_PUBLISHER, help="Canal de publicação")
     parser.add_argument("--theme", choices=["morning", "midday", "evening", "general", "ansiedade", "cansaco", "medo", "familia", "esperanca", "cura", "sunday_blessing"], default="general", help="Tema ou dor emocional do post")
     parser.add_argument("--list-profiles", action="store_true", help="Lista perfis conectados no Postproxy")
+    parser.add_argument("--analytics", action="store_true", help="Sincroniza métricas do Buffer e exibe painel de inteligência")
     parser.add_argument("--daemon", action="store_true", help="Executa em segundo plano com agendamento diário")
+    parser.add_argument("--cut-url", type=str, default="", help="URL do YouTube ou vídeo para corte inteligente no VideoFlow")
+    parser.add_argument("--cut-preset", type=str, default="biblico", help="Preset do VideoFlow (padrão: biblico)")
+    parser.add_argument("--cut-wait", action="store_true", help="Aguarda conclusão do job no VideoFlow e importa vídeos gerados")
 
     args = parser.parse_args()
     make_video_eff = not args.no_video
@@ -717,14 +1195,25 @@ def main() -> None:
 
     db = DBManager(DB_PATH)
 
+    if args.analytics:
+        from src.analytics.metrics_collector import collect_buffer_metrics, print_analytics_report
+        summary = collect_buffer_metrics(db)
+        print_analytics_report(summary)
+        db.close()
+        return
+
     if args.daemon:
         import schedule
         daily_count = 1 if args.count == POSTS_PER_RUN else args.count
-        log.info("Iniciando modo Daemon com agendamento quádruplo diário (sempre em vídeo dinâmico):")
-        log.info(f"  🌅 06:30 -> Devocional Matinal & Oração do Dia (Vídeo dinâmico de versículo, {daily_count} post)")
-        log.info(f"  ☀️ 12:00 -> Palavra de Fé & Sabedoria (Vídeo dinâmico de versículo, {daily_count} post)")
-        log.info(f"  🌙 18:00 -> Oração da Noite, Gratidão e Paz (Vídeo dinâmico de versículo, {daily_count} post)")
-        log.info(f"  🕊️ 20:30 -> Santo do Dia (YouTube/TikTok às 20:30 + Instagram Reel às 06:00, {daily_count} post)")
+        log.info("Iniciando modo Daemon com agendamento completo de 8 horários diários (4 Vídeos + 3 Carrosséis Instagram/TikTok Photo Mode + 1 Novena):")
+        log.info(f"  🌅 06:30 -> Vídeo 9:16: Devocional Matinal & Evangelho do Dia (Reels, TikTok, YouTube)")
+        log.info(f"  🕊️ 08:30 -> Carrossel: Santo do Dia (Instagram Feed 4:5 + TikTok Photo Mode 9:16)")
+        log.info(f"  📖 10:00 -> Carrossel: Evangelho do Dia (Instagram Feed 4:5 + TikTok Photo Mode 9:16)")
+        log.info(f"  ☀️ 12:00 -> Vídeo 9:16: Palavra de Fé & Sabedoria (Reels, TikTok, YouTube)")
+        log.info(f"  🔥 15:00 -> Vídeo / Post: Novena Litúrgica ativa (somente se houver novena)")
+        log.info(f"  🌙 18:00 -> Vídeo 9:16: Salmo ou Oração de Proteção (Reels, TikTok, YouTube)")
+        log.info(f"  🙏 19:15 -> Carrossel: Oração / Salmo das 18h (Instagram Feed 4:5 + TikTok Photo Mode 9:16)")
+        log.info(f"  ✨ 20:30 -> Vídeo 9:16: Santo do Dia da Véspera (Reels, TikTok, YouTube)")
 
         # Agendamento das 06:30 (Matinal: Domingo = Bênção da Semana, Segunda a Sábado = Evangelho do Dia)
         def _morning_job():
@@ -738,6 +1227,20 @@ def main() -> None:
 
         schedule.every().day.at("06:30").do(_morning_job)
 
+        # Agendamento das 08:30 (Carrossel 4:5 no Feed do Instagram: Santo do Dia)
+        def _morning_saint_carousel_job():
+            log.info("🕊️ [08:30] Publicando Carrossel 4:5 do Santo do Dia no feed do Instagram...")
+            run_carousel_pipeline(source="saint", publisher=args.publisher)
+
+        schedule.every().day.at("08:30").do(_morning_saint_carousel_job)
+
+        # Agendamento das 10:00 (Carrossel 4:5 no Feed do Instagram: Aprofundamento do Evangelho)
+        def _morning_gospel_carousel_job():
+            log.info("📖 [10:00] Publicando Carrossel 4:5 do Evangelho do Dia no feed do Instagram...")
+            run_carousel_pipeline(source="gospel", publisher=args.publisher)
+
+        schedule.every().day.at("10:00").do(_morning_gospel_carousel_job)
+
         # Agendamento das 12:00 (Meio-dia: Palavra de Fé & Sabedoria Bíblica)
         schedule.every().day.at("12:00").do(
             run_pipeline,
@@ -749,27 +1252,63 @@ def main() -> None:
             theme="midday"
         )
 
-        # Agendamento das 18:00 (Noturno: Gratidão, Fé e Paz)
-        schedule.every().day.at("18:00").do(
-            run_pipeline,
-            source=args.source,
-            count=daily_count,
-            make_video=make_video_eff,
-            publisher=args.publisher,
-            dispatch_limit=daily_count,
-            theme="evening"
-        )
+        # Agendamento das 15:00 (Novena Litúrgica Ativa: Vídeo / Post)
+        def _novena_job():
+            nov = check_active_novena(date.today())
+            if nov:
+                log.info(f"🔥 [15:00] Novena ativa detectada: {nov['saint_name']} - {nov['novena_day']}º Dia")
+                run_novena_pipeline(publisher=args.publisher, make_video=make_video_eff, dispatch=True)
+            else:
+                log.info("🕊️ [15:00] Nenhuma novena litúrgica ativa para hoje.")
 
-        # Agendamento das 20:30 (Véspera: Santo do Dia seguinte para indexação e oração da noite)
-        schedule.every().day.at("20:30").do(
-            run_pipeline,
-            source="saint",
-            count=daily_count,
-            make_video=make_video_eff,
-            publisher=args.publisher,
-            dispatch_limit=daily_count,
-            theme="morning"
-        )
+        schedule.every().day.at("15:00").do(_novena_job)
+
+        # Agendamento das 18:00 (Noturno: Oração Clássica / Salmo de Proteção e Paz)
+        def _evening_prayer_job():
+            is_even = (datetime.now().day % 2 == 0)
+            if is_even:
+                log.info("🌙 Noturno Oficial: Salmo Responsorial do Dia (Liturgia CNBB)")
+                run_prayer_pipeline(source="psalm", publisher=args.publisher, make_video=make_video_eff, dispatch=True)
+            else:
+                log.info("🌙 Noturno Oficial: Oração Clássica de Proteção (Salmo 91, São Bento, São Miguel)")
+                run_prayer_pipeline(source="prayer", publisher=args.publisher, make_video=make_video_eff, dispatch=True)
+
+        schedule.every().day.at("18:00").do(_evening_prayer_job)
+
+        # Agendamento das 19:15 (Carrossel no Feed: Oração / Salmo independente das 18h)
+        def _evening_carousel_job():
+            is_even = (datetime.now().day % 2 == 0)
+            # Alterna fonte para nunca repetir o tema das 18h (se 18h foi Oração, 19:15 é Salmo; se 18h foi Salmo, 19:15 é Oração)
+            alt_source = "prayer" if is_even else "psalm"
+            log.info(f"🙏 [19:15] Publicando Carrossel independente ({alt_source}) no feed...")
+            run_carousel_pipeline(source=alt_source, publisher=args.publisher)
+
+        schedule.every().day.at("19:15").do(_evening_carousel_job)
+
+        # Agendamento das 20:30 (Véspera: Santo do Dia seguinte)
+        def _saint_eve_job():
+            tomorrow = date.today() + timedelta(days=1)
+            log.info(f"✨ [20:30] Gerando e publicando Santo do Dia da véspera ({tomorrow.strftime('%d/%m')})...")
+            run_saint_pipeline(
+                target_date=tomorrow,
+                publisher=args.publisher,
+                make_video=make_video_eff,
+                dispatch=True
+            )
+
+        schedule.every().day.at("20:30").do(_saint_eve_job)
+
+        # Agendamento das 23:15 (Loop de Métricas & Analytics Noturno)
+        def _analytics_job():
+            try:
+                log.info("📊 Sincronizando métricas de engajamento do Buffer...")
+                from src.analytics.metrics_collector import collect_buffer_metrics, print_analytics_report
+                summary = collect_buffer_metrics(db)
+                print_analytics_report(summary)
+            except Exception as e_an:
+                log.warning(f"Falha na sincronização periódica de analytics: {e_an}")
+
+        schedule.every().day.at("23:15").do(_analytics_job)
 
         # Executa verificação inicial de auto-recuperação (Catch-up)
         check_and_catchup_missed_post(
@@ -784,21 +1323,35 @@ def main() -> None:
             schedule.run_pending()
             time.sleep(30)
 
+    if args.carousel:
+        src = args.source if args.source in ("gospel", "prayer", "psalm", "saint", "novena") else "gospel"
+        run_carousel_pipeline(source=src, publisher=args.publisher)
+        return
+
     if args.saint:
         run_saint_pipeline(publisher=args.publisher, make_video=make_video_eff, dispatch=args.dispatch)
         return
 
-    if args.gospel:
-        run_pipeline(source="gospel", count=1, make_video=make_video_eff, publisher=args.publisher, theme="morning")
+    if args.novena:
+        run_novena_pipeline(publisher=args.publisher, make_video=make_video_eff, dispatch=args.dispatch)
+        return
+
+    if args.psalm:
+        run_prayer_pipeline(source="psalm", publisher=args.publisher, make_video=make_video_eff, dispatch=args.dispatch)
         return
 
     if args.prayer:
-        run_pipeline(source="prayer", count=1, make_video=make_video_eff, publisher=args.publisher, theme="evening")
+        run_prayer_pipeline(source="prayer", publisher=args.publisher, make_video=make_video_eff, dispatch=args.dispatch)
         return
 
     if args.community:
         run_pipeline(source="community", count=1, make_video=make_video_eff, publisher=args.publisher, theme="evening")
         return
+    if args.cut_url:
+        run_videoflow_cut(url=args.cut_url, preset=args.cut_preset, wait=args.cut_wait, count=args.count, publisher=args.publisher, db=db)
+        db.close()
+        return
+
 
     if args.all or len(sys.argv) == 1:
         run_pipeline(source=args.source, count=args.count, make_video=make_video_eff, publisher=args.publisher, theme=args.theme)

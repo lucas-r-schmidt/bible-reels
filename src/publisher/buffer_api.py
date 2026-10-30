@@ -175,12 +175,13 @@ def delete_post(post_id: str) -> bool:
 
 def _publish_via_gateway(
     post_data: dict[str, Any],
-    media: Path,
+    media: Path | None,
     text: str,
     is_video: bool,
     mode: str | None = None,
     draft: bool | None = None,
     due_at: str | None = None,
+    carousel_slides: list[Path] | None = None,
 ) -> bool | None:
     gateway_url = os.getenv("BUFFER_GATEWAY_URL", "http://localhost:8090").strip().rstrip("/")
     if not gateway_url:
@@ -191,25 +192,45 @@ def _publish_via_gateway(
     eff_mode = mode or os.getenv("BUFFER_MODE", "shareNow").strip()
     eff_draft = draft if draft is not None else os.getenv("BUFFER_DRAFT", "false").strip().lower() in ("1", "true", "yes")
 
-    log.info(f"Tentando envio via Buffer Gateway ({gateway_url}) para perfil '{profile}'...")
+    is_carousel = bool(carousel_slides and len(carousel_slides) > 1)
+    log.info(f"Tentando envio via Buffer Gateway ({gateway_url}) para perfil '{profile}' (carrossel={is_carousel})...")
     headers = {"X-API-Key": gateway_api_key} if gateway_api_key else {}
 
     try:
         title = post_data.get("reference", "")
-        with open(media, "rb") as f:
-            files = {"file": (media.name, f, "video/mp4" if is_video else "image/jpeg")}
-            data = {
-                "profile": profile,
-                "text": text,
-                "mode": eff_mode,
-                "draft": "true" if eff_draft else "false",
-            }
-            if due_at:
-                data["due_at"] = due_at
-                data["scheduled_at"] = due_at
-            if title:
-                data["title"] = title
-            resp = requests.post(f"{gateway_url}/api/v1/publish-file", files=files, data=data, headers=headers, timeout=120)
+        data = {
+            "profile": profile,
+            "text": text,
+            "mode": eff_mode,
+            "draft": "true" if eff_draft else "false",
+        }
+        if due_at:
+            data["due_at"] = due_at
+            data["scheduled_at"] = due_at
+        if title:
+            data["title"] = title
+
+        if is_carousel and carousel_slides:
+            # Upload múltiplo no endpoint /api/v1/publish-carousel
+            opened_files = []
+            try:
+                files_payload = []
+                for s in carousel_slides:
+                    f = open(s, "rb")
+                    opened_files.append(f)
+                    mime = "image/png" if s.suffix.lower() == ".png" else "image/jpeg"
+                    files_payload.append(("files", (s.name, f, mime)))
+
+                resp = requests.post(f"{gateway_url}/api/v1/publish-carousel", files=files_payload, data=data, headers=headers, timeout=180)
+            finally:
+                for f in opened_files:
+                    f.close()
+        elif media:
+            with open(media, "rb") as f:
+                files = {"file": (media.name, f, "video/mp4" if is_video else "image/jpeg")}
+                resp = requests.post(f"{gateway_url}/api/v1/publish-file", files=files, data=data, headers=headers, timeout=120)
+        else:
+            return None
 
         if resp.status_code == 200:
             res_json = resp.json()
@@ -246,6 +267,7 @@ def publish_via_buffer(
     draft: bool | None = None,
     due_at: str | None = None,
     target_service: str | None = None,
+    prefer_carousel: bool = False,
 ) -> bool:
     """Roteia inteligentemente mídias para cada canal no Buffer:
     - Instagram: SEMPRE Vídeo Reel vertical prioritário com áudio/legenda (para Santo do Dia e Versículos).
@@ -254,6 +276,18 @@ def publish_via_buffer(
     """
     _load_env()
     from src.publisher.webhook import resolve_public_media_url
+
+    if not post_data.get("reference") and post_data.get("verse_id"):
+        try:
+            from config.settings import DB_PATH
+            import sqlite3
+            with sqlite3.connect(str(DB_PATH)) as c:
+                r = c.execute("SELECT reference, source FROM verses WHERE id = ?", (post_data["verse_id"],)).fetchone()
+                if r:
+                    post_data["reference"] = r[0]
+                    post_data["verse_source"] = r[1]
+        except Exception:
+            pass
 
     # 1. Identifica todas as mídias disponíveis para o post
     video_path: Path | None = None
@@ -301,6 +335,25 @@ def publish_via_buffer(
             tags = " ".join([f"#{t.lstrip('#')}" for t in tags])
         text = f"{post_data.get('formatted_text', '')}\n\n{tags}".strip()
 
+    # 1.1 Tenta enviar prioritariamente via Buffer Gateway (vídeos, imagens ou carrosséis multi-imagens)
+    if os.getenv("BUFFER_GATEWAY_URL"):
+        is_carousel_job = bool(prefer_carousel or post_data.get("prefer_carousel") or len(carousel_slides) > 1)
+        media_for_gw = None if is_carousel_job else (video_path or single_image_path)
+        if media_for_gw or (is_carousel_job and carousel_slides):
+            gw_res = _publish_via_gateway(
+                post_data=post_data,
+                media=media_for_gw,
+                text=text,
+                is_video=bool(video_path),
+                mode=mode,
+                draft=draft,
+                due_at=due_at,
+                carousel_slides=carousel_slides if is_carousel_job else None,
+            )
+            if gw_res is True:
+                return True
+            log.warning("Envio via Buffer Gateway não concluiu. Usando fallback direto...")
+
     try:
         channel_ids = _resolve_channel_ids()
         services = {c["id"]: str(c.get("service", "")).lower() for c in list_channels()}
@@ -329,20 +382,30 @@ def publish_via_buffer(
     any_ok = False
     for ch_id in channel_ids:
         service = services.get(ch_id, "")
-        if target_service and service != target_service.lower():
-            continue
+        if target_service:
+            targets = [t.strip().lower() for t in target_service.split(",")] if isinstance(target_service, str) else [str(t).lower() for t in target_service]
+            if service not in targets:
+                continue
 
         # Roteamento Inteligente por Plataforma e Tipo de Conteúdo:
         # - Instagram: SEMPRE Vídeo Reel 9:16 vertical (para Santo do Dia e Versículos)
         # - TikTok e YouTube Shorts: SEMPRE Vídeo MP4 vertical 9:16
         if service == "instagram":
-            if video_path:
+            # Se prefer_carousel for True ou solicitado pelo agendador, prioriza envio das lâminas 4:5
+            if (prefer_carousel or post_data.get("prefer_carousel")) and carousel_slides:
+                slide_urls = [_get_url(s) for s in carousel_slides]
+                slide_urls = [u for u in slide_urls if u]
+                if not slide_urls: continue
+                log.info(f"Buffer (instagram): enviando Carrossel 4:5 ({len(slide_urls)} lâminas no feed)...")
+                target_urls = slide_urls
+                is_vid = False
+            elif video_path:
                 v_url = _get_url(video_path)
                 if not v_url: continue
                 log.info(f"Buffer (instagram): enviando Vídeo Reel ({'Santo do Dia' if is_saint else 'Versículo'})...")
                 target_urls = [v_url]
                 is_vid = True
-            elif is_saint and carousel_slides:
+            elif carousel_slides:
                 slide_urls = [_get_url(s) for s in carousel_slides]
                 slide_urls = [u for u in slide_urls if u]
                 if not slide_urls: continue
@@ -357,18 +420,56 @@ def publish_via_buffer(
             else:
                 continue
 
-        elif service in ("tiktok", "youtube"):
-            # TikTok e YouTube Shorts: SEMPRE VÍDEO MP4 (Santo do Dia e Escrituras)
+        elif service == "youtube":
+            # YouTube Shorts aceita apenas vídeo vertical MP4
+            if prefer_carousel or post_data.get("prefer_carousel"):
+                log.info(f"Buffer (youtube): ignorando canal para post carrossel (Shorts só aceita vídeo).")
+                continue
+
             if video_path:
                 v_url = _get_url(video_path)
                 if not v_url:
-                    log.warning(f"Buffer ({service}): falha ao gerar URL pública do vídeo MP4.")
+                    log.warning(f"Buffer (youtube): falha ao gerar URL pública do vídeo MP4.")
                     continue
-                log.info(f"Buffer ({service}): enviando Vídeo vertical MP4...")
+                log.info(f"Buffer (youtube): enviando Vídeo vertical MP4...")
                 target_urls = [v_url]
                 is_vid = True
             else:
-                log.warning(f"Buffer ({service}): vídeo MP4 não encontrado para o Post #{post_data.get('id')}.")
+                log.warning(f"Buffer (youtube): vídeo MP4 não encontrado para o Post #{post_data.get('id')}.")
+                continue
+
+        elif service == "tiktok":
+            # Suporte oficial a Photo Mode no TikTok quando for job de carrossel
+            if (prefer_carousel or post_data.get("prefer_carousel")) and carousel_slides:
+                # Prioriza lâminas verticais 9:16 de tela cheia (scenes/), com fallback para 4:5
+                scenes_dir = carousel_slides[0].parent / "scenes"
+                v_slides = sorted([s for s in scenes_dir.iterdir() if s.is_file() and s.name.startswith("scene_") and s.suffix.lower() in ('.png', '.jpg', '.jpeg')]) if scenes_dir.is_dir() else []
+                slides_to_use = v_slides if v_slides else carousel_slides
+                slide_urls = [_get_url(s) for s in slides_to_use]
+                slide_urls = [u for u in slide_urls if u]
+                if slide_urls:
+                    target_urls = slide_urls
+                    is_vid = False
+                    log.info(f"Buffer (tiktok): enviando Carrossel Photo Mode ({len(slide_urls)} lâminas verticais 9:16)...")
+                else:
+                    log.warning("Buffer (tiktok): falha ao obter URLs públicas das lâminas para Photo Mode.")
+                    continue
+            elif video_path:
+                v_url = _get_url(video_path)
+                if not v_url:
+                    log.warning(f"Buffer (tiktok): falha ao gerar URL pública do vídeo MP4.")
+                    continue
+                log.info(f"Buffer (tiktok): enviando Vídeo vertical MP4...")
+                target_urls = [v_url]
+                is_vid = True
+            elif carousel_slides:
+                slide_urls = [_get_url(s) for s in carousel_slides]
+                slide_urls = [u for u in slide_urls if u]
+                target_urls = slide_urls
+                is_vid = False
+                log.info(f"Buffer (tiktok): vídeo indisponível, fallback para Photo Mode ({len(slide_urls)} lâminas)...")
+            else:
+                log.warning(f"Buffer (tiktok): nenhuma mídia válida para envio.")
                 continue
         else:
             if video_path:

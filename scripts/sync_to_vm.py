@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def sync_to_vm():
     print("=== [1/3] Empacotando arquivos do projeto ===")
-    include_dirs = ["src", "config", "deploy", "scripts", "data/audio", "data/saints"]
+    include_dirs = ["src", "config", "deploy", "scripts", "data/audio", "data/fonts", "data/saints", "data/quotes"]
     include_files = ["main.py", "web_server.py", "requirements.txt", "AGENTS.md"]
 
     tar_path = ROOT / "deploy_bundle.tar.gz"
@@ -39,12 +39,13 @@ def sync_to_vm():
         return False
     print("Upload concluido!")
 
-    print("=== [3/3] Descompactando no servidor e atualizando permissoes ===")
+    print("=== [3/3] Descompactando no servidor e atualizando serviços ===")
     remote_unpack = (
         "cd /home/ubuntu/bible-reels && "
         "tar -xzf deploy_bundle.tar.gz && "
         "rm -f deploy_bundle.tar.gz && "
-        "echo 'Arquivos extraidos com sucesso na VM!'"
+        "sudo systemctl restart bible-reels-web bible-reels-scheduler && "
+        "echo 'Arquivos extraídos e serviços reiniciados com sucesso na VM!'"
     )
     res_ssh = subprocess.run(["ssh", "oracle-social", remote_unpack], capture_output=True, text=True)
     print(res_ssh.stdout)

@@ -84,10 +84,34 @@ class DBManager:
                 replied_at   TEXT DEFAULT ''
             );
 
+            CREATE TABLE IF NOT EXISTS post_metrics (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                buffer_post_id  TEXT NOT NULL,
+                platform        TEXT NOT NULL,          -- 'youtube' | 'tiktok' | 'instagram'
+                external_link   TEXT DEFAULT '',
+                sent_at         TEXT DEFAULT '',
+                text_snippet    TEXT DEFAULT '',
+                theme           TEXT DEFAULT 'faith',   -- 'gospel' | 'saint' | 'psalm' | 'prayer' | 'faith' | 'novena'
+                post_hour       INTEGER DEFAULT 0,       -- hora local do envio (0-23)
+                views           INTEGER DEFAULT 0,
+                likes           INTEGER DEFAULT 0,
+                comments        INTEGER DEFAULT 0,
+                shares          INTEGER DEFAULT 0,
+                reach           INTEGER DEFAULT 0,
+                engagement_rate REAL DEFAULT 0.0,
+                watch_time_sec  REAL DEFAULT 0.0,
+                raw_metrics     TEXT DEFAULT '{}',
+                updated_at      TEXT NOT NULL,
+                UNIQUE(buffer_post_id, platform)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_verses_hash ON verses(hash);
             CREATE INDEX IF NOT EXISTS idx_posts_status ON posts(status);
             CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status);
             CREATE INDEX IF NOT EXISTS idx_comment_interactions_id ON comment_interactions(comment_id);
+            CREATE INDEX IF NOT EXISTS idx_post_metrics_theme ON post_metrics(theme);
+            CREATE INDEX IF NOT EXISTS idx_post_metrics_platform ON post_metrics(platform);
+            CREATE INDEX IF NOT EXISTS idx_post_metrics_hour ON post_metrics(post_hour);
         """)
         self.conn.commit()
 
@@ -273,21 +297,49 @@ class DBManager:
 
         return False, None
 
-    def has_saint_post_for_date(self, target_date: date) -> tuple[bool, dict[str, Any] | None]:
+    def has_saint_post_for_date(
+        self,
+        target_date: date,
+        saint_name: str | None = None
+    ) -> tuple[bool, dict[str, Any] | None]:
         """
-        Verifica se já existe post gerado ou publicado para o Santo da data indicada.
-        Evita duplicação caso o post já tenha sido agendado ou enviado previamente.
+        Verifica se já existe o Santo CORRETO gerado ou enviado para a data indicada.
+        Verifica:
+        1. Vínculo direto com versículo do tipo 'saint' contendo a data (DD/MM).
+        2. Vínculo com versículo ou legenda contendo o nome canônico do Santo correto.
+        3. Menção à data litúrgica (DD/MM) ou ao Santo no título/legenda.
+        4. Status na fila ('sent' / 'pending') e status na tabela posts ('published' / 'created').
         """
         d_str = f"{target_date.day:02d}/{target_date.month:02d}"
-        row = self.conn.execute(
-            """SELECT p.* FROM posts p
-               JOIN verses v ON v.id = p.verse_id
-               WHERE v.source = 'saint' AND v.reference LIKE ?
-               ORDER BY p.id DESC LIMIT 1""",
-            (f"%({d_str})%",)
-        ).fetchone()
+        clauses = [
+            "(v.reference LIKE ? OR v.text LIKE ?)",
+            "(p.caption LIKE ? AND (p.caption LIKE '%#santododia%' OR p.caption LIKE '%santododia%' OR p.hook_title LIKE '%SANTO DO DIA%'))",
+            "(p.hook_title LIKE ?)"
+        ]
+        params: list[Any] = [f"%({d_str})%", f"%({d_str})%", f"%({d_str})%", f"%{d_str}%"]
+
+        if saint_name and saint_name.strip():
+            clean_name = saint_name.strip()
+            clauses.append("(v.reference LIKE ? OR p.caption LIKE ? OR p.hook_title LIKE ?)")
+            params.extend([f"%{clean_name}%", f"%{clean_name}%", f"%{clean_name.upper()}%"])
+
+        where_inner = " OR ".join(clauses)
+        where_sql = f"v.source = 'saint' AND ({where_inner})"
+        query = f"""
+            SELECT p.*, q.status AS queue_status
+            FROM posts p
+            JOIN verses v ON v.id = p.verse_id
+            LEFT JOIN queue q ON q.post_id = p.id
+            WHERE {where_sql}
+            ORDER BY p.id DESC LIMIT 1
+        """
+        row = self.conn.execute(query, params).fetchone()
         if row:
-            return True, dict(row)
+            post_dict = dict(row)
+            if post_dict.get("queue_status") == "sent" or post_dict.get("status") == "published":
+                post_dict["is_sent"] = True
+            return True, post_dict
+
         return False, None
 
     def get_pending_posts(self, limit: int = 10, need_video: bool = False, need_image: bool = False) -> list[dict[str, Any]]:
@@ -417,6 +469,140 @@ class DBManager:
                  AND created_at >= datetime('now', ?)
                ORDER BY id DESC LIMIT ?""",
             (f"-{days} days", limit)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Post Metrics (Analytics) ──────────────────────────────────────────
+
+    def upsert_post_metric(
+        self,
+        buffer_post_id: str,
+        platform: str,
+        external_link: str = "",
+        sent_at: str = "",
+        text_snippet: str = "",
+        theme: str = "faith",
+        post_hour: int = 0,
+        views: int = 0,
+        likes: int = 0,
+        comments: int = 0,
+        shares: int = 0,
+        reach: int = 0,
+        engagement_rate: float = 0.0,
+        watch_time_sec: float = 0.0,
+        raw_metrics: str = "{}",
+    ) -> None:
+        """Insere ou atualiza métricas de engajamento de um post."""
+        self.conn.execute(
+            """INSERT INTO post_metrics (
+                   buffer_post_id, platform, external_link, sent_at, text_snippet,
+                   theme, post_hour, views, likes, comments, shares, reach,
+                   engagement_rate, watch_time_sec, raw_metrics, updated_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(buffer_post_id, platform) DO UPDATE SET
+                   external_link = excluded.external_link,
+                   sent_at = CASE WHEN excluded.sent_at != '' THEN excluded.sent_at ELSE post_metrics.sent_at END,
+                   text_snippet = CASE WHEN excluded.text_snippet != '' THEN excluded.text_snippet ELSE post_metrics.text_snippet END,
+                   theme = excluded.theme,
+                   post_hour = excluded.post_hour,
+                   views = excluded.views,
+                   likes = excluded.likes,
+                   comments = excluded.comments,
+                   shares = excluded.shares,
+                   reach = excluded.reach,
+                   engagement_rate = excluded.engagement_rate,
+                   watch_time_sec = excluded.watch_time_sec,
+                   raw_metrics = excluded.raw_metrics,
+                   updated_at = excluded.updated_at
+            """,
+            (
+                buffer_post_id, platform, external_link, sent_at, text_snippet,
+                theme, post_hour, views, likes, comments, shares, reach,
+                engagement_rate, watch_time_sec, raw_metrics, _now_iso()
+            )
+        )
+        self.conn.commit()
+
+    def get_analytics_summary(self) -> dict[str, Any]:
+        """Gera resumo consolidado das métricas de todas as redes."""
+        row_totals = self.conn.execute(
+            """SELECT
+                   COUNT(*) as total_posts,
+                   COALESCE(SUM(views), 0) as total_views,
+                   COALESCE(SUM(likes), 0) as total_likes,
+                   COALESCE(SUM(comments), 0) as total_comments,
+                   COALESCE(SUM(shares), 0) as total_shares,
+                   COALESCE(SUM(reach), 0) as total_reach,
+                   ROUND(AVG(engagement_rate), 2) as avg_engagement_rate
+               FROM post_metrics"""
+        ).fetchone()
+
+        by_platform = self.conn.execute(
+            """SELECT
+                   platform,
+                   COUNT(*) as posts_count,
+                   COALESCE(SUM(views), 0) as views,
+                   COALESCE(SUM(likes), 0) as likes,
+                   COALESCE(SUM(comments), 0) as comments,
+                   COALESCE(SUM(shares), 0) as shares,
+                   ROUND(AVG(engagement_rate), 2) as avg_engagement_rate
+               FROM post_metrics
+               GROUP BY platform"""
+        ).fetchall()
+
+        return {
+            "totals": dict(row_totals) if row_totals else {},
+            "by_platform": [dict(r) for r in by_platform],
+            "themes": self.get_theme_performance(),
+            "hourly": self.get_hourly_performance(),
+            "top_posts": self.get_top_posts(limit=5)
+        }
+
+    def get_top_posts(self, limit: int = 10, order_by: str = "views") -> list[dict[str, Any]]:
+        """Retorna os posts mais engajados."""
+        valid_orders = {"views", "likes", "comments", "shares", "engagement_rate"}
+        sort_col = order_by if order_by in valid_orders else "views"
+        rows = self.conn.execute(
+            f"""SELECT id, buffer_post_id, platform, external_link, sent_at, text_snippet,
+                       theme, post_hour, views, likes, comments, shares, engagement_rate, updated_at
+                FROM post_metrics
+                ORDER BY {sort_col} DESC, id DESC
+                LIMIT ?""",
+            (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_theme_performance(self) -> list[dict[str, Any]]:
+        """Retorna o desempenho médio por tema litúrgico."""
+        rows = self.conn.execute(
+            """SELECT
+                   theme,
+                   COUNT(*) as posts_count,
+                   COALESCE(SUM(views), 0) as total_views,
+                   ROUND(AVG(views), 1) as avg_views,
+                   COALESCE(SUM(likes), 0) as total_likes,
+                   COALESCE(SUM(comments), 0) as total_comments,
+                   ROUND(AVG(engagement_rate), 2) as avg_engagement_rate
+               FROM post_metrics
+               GROUP BY theme
+               ORDER BY avg_views DESC, total_views DESC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_hourly_performance(self) -> list[dict[str, Any]]:
+        """Retorna o desempenho por horário de publicação."""
+        rows = self.conn.execute(
+            """SELECT
+                   post_hour,
+                   COUNT(*) as posts_count,
+                   COALESCE(SUM(views), 0) as total_views,
+                   ROUND(AVG(views), 1) as avg_views,
+                   COALESCE(SUM(likes), 0) as total_likes,
+                   COALESCE(SUM(comments), 0) as total_comments,
+                   ROUND(AVG(engagement_rate), 2) as avg_engagement_rate
+               FROM post_metrics
+               GROUP BY post_hour
+               ORDER BY avg_views DESC, total_views DESC"""
         ).fetchall()
         return [dict(r) for r in rows]
 

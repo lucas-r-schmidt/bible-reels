@@ -25,15 +25,15 @@ CANVAS_WIDTH: int = int(os.getenv("CANVAS_WIDTH", "1080"))
 CANVAS_HEIGHT: int = int(os.getenv("CANVAS_HEIGHT", "1920"))
 VIDEO_DURATION: int = int(os.getenv("VIDEO_DURATION", "15"))
 VIDEO_DURATION_VERSE: int = int(os.getenv("VIDEO_DURATION_VERSE", "14"))
-VIDEO_DURATION_SAINT: int = int(os.getenv("VIDEO_DURATION_SAINT", "50"))
+VIDEO_DURATION_SAINT: int = int(os.getenv("VIDEO_DURATION_SAINT", "68"))
 ENABLE_AUDIO_CTA: bool = os.getenv("ENABLE_AUDIO_CTA", "true").lower() in ("true", "1", "yes")
 CTA_VERSE_TEXT: str = os.getenv(
     "CTA_VERSE_TEXT",
-    "Escreva Amém nos comentários e envie esta mensagem para quem você ama. Siga para receber a Palavra diária."
+    "Escreva Amém e coloque o seu pedido de oração nos comentários. Compartilhe com quem você ama e siga para a bênção diária."
 )
 CTA_SAINT_TEXT: str = os.getenv(
     "CTA_SAINT_TEXT",
-    "Escreva o nome de quem você coloca em oração nos comentários. Compartilhe esta bênção e siga nossa página."
+    "Escreva nos comentários quem você coloca em oração hoje. Deixe seu Amém, compartilhe esta bênção e siga nossa página."
 )
 INSTAGRAM_ACCESS_TOKEN: str = os.getenv("INSTAGRAM_ACCESS_TOKEN", "")
 INSTAGRAM_ACCOUNT_ID: str = os.getenv("INSTAGRAM_ACCOUNT_ID", "")
@@ -65,3 +65,7 @@ CLOUDFLARE_API_TOKEN: str = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
 HUGGINGFACE_API_TOKEN: str = os.getenv("HUGGINGFACE_API_TOKEN", os.getenv("HF_TOKEN", "")).strip()
 
 ENABLE_CAROUSEL: bool = os.getenv("ENABLE_CAROUSEL", "false").lower() in ("true", "1", "yes")
+
+# Integracao com VideoFlow
+VIDEOFLOW_URL: str = os.getenv('VIDEOFLOW_URL', 'http://localhost:8000').rstrip('/')
+VIDEOFLOW_API_TOKEN: str = os.getenv('VIDEOFLOW_API_TOKEN', '').strip()

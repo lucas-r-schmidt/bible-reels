@@ -1,378 +1,806 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-theme="dark">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bible Reels — Painel de Automação Visual</title>
-  
-  <!-- Google Fonts -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Bible Reels Studio — Automação Visual</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
-  
-  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
-
-  <!-- Header -->
-  <header class="top-header">
-    <div class="brand">
-      <div class="brand-icon">✨</div>
-      <div>
-        <div class="brand-title">Bible Reels Studio</div>
-        <div class="brand-subtitle">Automação de Vídeos & Redes Sociais</div>
-      </div>
-    </div>
-
-    <div class="header-status">
-      <div class="status-badge" id="server-status">
-        <span class="status-dot"></span>
-        <span>Motor Local Online</span>
-      </div>
-      <div class="postproxy-badge" id="postproxy-status">
-        <span>⚡ Postproxy Ativo</span>
-      </div>
-    </div>
-  </header>
-
-  <!-- Container Principal -->
-  <main class="main-container">
-    
-    <!-- Cards de Métricas / KPIs -->
-    <section class="stats-grid">
-      <div class="stat-card purple">
-        <div class="stat-icon-wrap">📖</div>
-        <div class="stat-info">
-          <h3>Versos Coletados</h3>
-          <div class="stat-value" id="stat-verses">-</div>
+  <div class="app-shell">
+    <!-- Sidebar (Desktop) / Bottom Nav (Mobile) -->
+    <aside class="sidebar" aria-label="Navegação Principal">
+      <div class="sidebar-brand">
+        <div class="brand-logo">
+          <i data-lucide="sparkles"></i>
+        </div>
+        <div class="brand-text">
+          <span class="brand-name">Bible Reels</span>
+          <span class="brand-tag">Studio v2</span>
         </div>
       </div>
 
-      <div class="stat-card blue">
-        <div class="stat-icon-wrap">🎬</div>
-        <div class="stat-info">
-          <h3>Posts Gerados</h3>
-          <div class="stat-value" id="stat-posts">-</div>
-        </div>
-      </div>
-
-      <div class="stat-card amber">
-        <div class="stat-icon-wrap">⏳</div>
-        <div class="stat-info">
-          <h3>Fila Pendente</h3>
-          <div class="stat-value" id="stat-pending">-</div>
-        </div>
-      </div>
-
-      <div class="stat-card emerald">
-        <div class="stat-icon-wrap">🚀</div>
-        <div class="stat-info">
-          <h3>Publicados</h3>
-          <div class="stat-value" id="stat-sent">-</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Barra de Ações Rápidas -->
-    <section class="actions-section">
-      <div class="actions-header">
-        <div class="actions-title">⚡ Controles de Automação</div>
-        <button id="btn-refresh" class="btn btn-secondary">🔄 Atualizar Dados</button>
-      </div>
-
-      <div class="actions-buttons">
-        <button id="btn-action-collect" class="btn btn-secondary">
-          <span>📥</span> Coletar Versos
+      <nav class="sidebar-nav">
+        <button class="nav-btn active" data-view="home">
+          <i data-lucide="layout-dashboard"></i>
+          <span>Início</span>
         </button>
-        <button id="btn-action-gospel" class="btn btn-secondary" style="border-color: rgba(56, 189, 248, 0.5); color: #7dd3fc;">
-          <span>📜</span> Evangelho de Hoje
+        <button class="nav-btn" data-view="content">
+          <i data-lucide="library"></i>
+          <span>Conteúdo</span>
+          <span class="nav-pill" id="nav-count-posts">0</span>
         </button>
-        <button id="btn-action-saint" class="btn btn-secondary" style="border-color: rgba(212, 175, 55, 0.5); color: #fef08a;">
-          <span>🕊️</span> Santo do Dia
+        <button class="nav-btn" data-view="calendar">
+          <i data-lucide="calendar-days"></i>
+          <span>Calendário</span>
         </button>
-        <button id="btn-action-prayer" class="btn btn-secondary" style="border-color: rgba(168, 85, 247, 0.5); color: #d8b4fe;">
-          <span>🙏</span> Oração Clássica
+        <button class="nav-btn" data-view="queue">
+          <i data-lucide="send"></i>
+          <span>Publicação</span>
+          <span class="nav-pill warn" id="nav-count-queue">0</span>
         </button>
-        <button id="btn-action-community" class="btn btn-secondary" style="border-color: rgba(52, 211, 153, 0.5); color: #a7f3d0;">
-          <span>🤝</span> Oração dos Inscritos
+        <button class="nav-btn" data-view="settings">
+          <i data-lucide="sliders-horizontal"></i>
+          <span>Configurações</span>
         </button>
-        <button id="btn-action-process" class="btn btn-secondary">
-          <span>🤖</span> Formatar com IA
+        <button class="nav-btn" data-view="users" id="nav-btn-users" style="display: none;">
+          <i data-lucide="shield-check"></i>
+          <span>Usuários</span>
+          <span class="nav-pill warn" id="nav-count-pending-users" style="display: none;">0</span>
         </button>
-        <button id="btn-action-media-vid" class="btn btn-secondary">
-          <span>🎥</span> Renderizar Vídeos
-        </button>
-        <button id="btn-action-dispatch" class="btn btn-primary">
-          <span>🚀</span> Disparar Fila
-        </button>
-      </div>
-    </section>
+      </nav>
 
-    <!-- Navegação por Abas -->
-    <nav class="tabs-nav">
-      <button class="tab-btn active" data-tab="tab-feed" id="tab-btn-feed">
-        <span>📱</span> Galeria de Posts & Feed
-      </button>
-      <button class="tab-btn" data-tab="tab-queue" id="tab-btn-queue">
-        <span>📋</span> Fila de Envio
-      </button>
-      <button class="tab-btn" data-tab="tab-profiles" id="tab-btn-profiles">
-        <span>🔗</span> Perfis Postproxy
-      </button>
-      <button class="tab-btn" data-tab="tab-logs" id="tab-btn-logs">
-        <span>📜</span> Logs do Sistema
-      </button>
-    </nav>
-
-    <!-- Conteúdo da Aba 1: Feed & Galeria -->
-    <section id="tab-feed" class="tab-pane active">
-      <div class="feed-filter-bar">
-        <div class="filter-pills" id="feed-filter-pills">
-          <button class="filter-pill active" data-filter="scriptures" id="filter-btn-scriptures">
-            <span>📖 Escrituras</span>
-            <span class="filter-count" id="count-scriptures">0</span>
-          </button>
-          <button class="filter-pill" data-filter="gospel" id="filter-btn-gospel">
-            <span>📜 Evangelho</span>
-            <span class="filter-count" id="count-gospel">0</span>
-          </button>
-          <button class="filter-pill" data-filter="saints" id="filter-btn-saints">
-            <span>🕊️ Santo do Dia</span>
-            <span class="filter-count" id="count-saints">0</span>
-          </button>
-          <button class="filter-pill" data-filter="prayers" id="filter-btn-prayers">
-            <span>🙏 Orações</span>
-            <span class="filter-count" id="count-prayers">0</span>
-          </button>
-          <button class="filter-pill" data-filter="community" id="filter-btn-community">
-            <span>🤝 Comunidade</span>
-            <span class="filter-count" id="count-community">0</span>
-          </button>
-          <button class="filter-pill" data-filter="all" id="filter-btn-all">
-            <span>📚 Todos</span>
-            <span class="filter-count" id="count-all">0</span>
-          </button>
-          <button class="filter-pill" data-filter="unpublished" id="filter-btn-unpublished">
-            <span>⏳ Não Publicados</span>
-            <span class="filter-count" id="count-unpublished">0</span>
-          </button>
-          <button class="filter-pill" data-filter="published" id="filter-btn-published">
-            <span>✅ Publicados</span>
-            <span class="filter-count" id="count-published">0</span>
-          </button>
-        </div>
-
-        <div class="filter-meta" id="filter-status-text">
-          Carregando filtros...
-        </div>
-      </div>
-
-      <div class="posts-grid" id="posts-container">
-        <!-- Inserido dinamicamente via JS -->
-      </div>
-    </section>
-
-    <!-- Conteúdo da Aba 2: Fila de Publicação -->
-    <section id="tab-queue" class="tab-pane">
-      <div class="table-card">
-        <table class="custom-table" id="queue-table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Referência</th>
-              <th>Plataforma</th>
-              <th>Status</th>
-              <th>Tentativas</th>
-              <th>Data Fila</th>
-              <th>Enviado Em</th>
-            </tr>
-          </thead>
-          <tbody id="queue-tbody">
-            <!-- Inserido dinamicamente via JS -->
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- Conteúdo da Aba 3: Perfis Postproxy -->
-    <section id="tab-profiles" class="tab-pane">
-      <div class="actions-section" style="margin-bottom: 1.5rem;">
-        <div class="actions-title">Perfis Conectados via Postproxy API</div>
-        <p style="color: var(--text-muted); font-size: 0.9rem;">
-          Estes perfis recebem as publicações automaticamente de acordo com as configurações do arquivo <code>.env</code>.
-        </p>
-      </div>
-      <div class="posts-grid" id="profiles-container">
-        <!-- Inserido dinamicamente via JS -->
-      </div>
-    </section>
-
-    <!-- Conteúdo da Aba 4: Logs do Sistema -->
-    <section id="tab-logs" class="tab-pane">
-      <div class="actions-header" style="margin-bottom: 0.75rem;">
-        <div class="actions-title">Últimas Linhas do Log de Execução</div>
-        <button id="btn-refresh-logs" class="btn btn-secondary">Atualizar Logs</button>
-      </div>
-      <div class="log-viewer" id="log-content">Carregando logs...</div>
-    </section>
-
-  </main>
-
-  <!-- Modal de Pré-Visualização Detalhada -->
-  <div class="modal-overlay" id="preview-modal">
-    <div class="modal-content">
-      <div class="modal-media-col" id="modal-media-slot">
-        <!-- Imagem ou Vídeo inserido aqui -->
-      </div>
-      <div class="modal-info-col">
-        <button class="modal-close-btn" id="modal-close-btn">&times;</button>
-        <h2 id="modal-reference" style="font-family: 'Outfit', sans-serif;">Referência</h2>
-        <div id="modal-text" style="font-size: 0.95rem; color: #cbd5e1; white-space: pre-wrap; line-height: 1.6;"></div>
-        <div class="post-tags" id="modal-hashtags"></div>
-        <div style="margin-top: auto; display: flex; gap: 0.75rem; flex-wrap: wrap;">
-          <button id="modal-btn-publish" class="btn btn-primary" style="flex: 1;">
-            <span>🚀</span> Publicar Agora
-          </button>
-          <button id="modal-btn-schedule" class="btn btn-secondary" style="flex: 1; border-color: rgba(139, 92, 246, 0.4);">
-            <span>⏰</span> Agendar no Buffer
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal de Configuração: Gerar & Agendar Santo do Dia -->
-  <div class="modal-overlay" id="saint-modal">
-    <div class="modal-card">
-      <div class="modal-card-header">
-        <div class="modal-card-title">🕊️ Gerar & Agendar Santo do Dia</div>
-        <button class="modal-close-btn" id="saint-modal-close-btn">&times;</button>
-      </div>
-
-      <div class="modal-card-body">
-        <p class="modal-card-desc">
-          Selecione a data litúrgica do Santo e defina o dia e horário para a publicação programada nas redes sociais via Buffer.
-        </p>
-
-        <!-- Passo 1: Data do Santo -->
-        <div class="form-group step-section">
-          <div class="step-header">
-            <span class="step-badge">Passo 1</span>
-            <label class="form-label" for="saint-date-input">📅 Data Litúrgica do Santo:</label>
+      <div class="sidebar-footer">
+        <div class="user-session-card" id="user-session-card" style="display: none; padding: 10px; margin-bottom: 8px; border-radius: var(--radius-md); background: var(--bg-elevated); border: 1px solid var(--border);">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+            <div style="overflow: hidden;">
+              <strong id="user-display-name" style="font-size: 13px; display: block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">Usuário</strong>
+              <span id="user-display-email" style="font-size: 11px; color: var(--text-muted); display: block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">email@exemplo.com</span>
+            </div>
+            <button type="button" class="btn-icon" id="btn-logout" title="Sair" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 4px;">
+              <i data-lucide="log-out"></i>
+            </button>
           </div>
-          <input type="date" id="saint-date-input" class="custom-input">
-          <div class="chip-group">
-            <button type="button" class="chip-btn" id="chip-saint-today">Hoje</button>
-            <button type="button" class="chip-btn active" id="chip-saint-tomorrow">Amanhã</button>
-            <button type="button" class="chip-btn" id="chip-saint-1012">12/10 (N. Sra. Aparecida)</button>
-            <button type="button" class="chip-btn" id="chip-saint-1013">13/10 (N. Sra. de Fátima)</button>
+        </div>
+        <div class="engine-status">
+          <span class="status-dot" id="engine-status-dot"></span>
+          <div class="engine-info">
+            <strong id="engine-status-text">Motor Online</strong>
+            <span id="engine-status-sub">Postproxy & Buffer</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Wrapper -->
+    <div class="main-wrapper">
+      <!-- Topbar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <div class="mobile-brand">
+            <div class="brand-logo sm"><i data-lucide="sparkles"></i></div>
+            <span class="brand-name">Bible Reels</span>
+          </div>
+          <div class="search-box">
+            <i data-lucide="search"></i>
+            <input type="search" id="global-search" placeholder="Buscar versículo, santo, oração..." aria-label="Buscar conteúdo">
+            <kbd>⌘K</kbd>
           </div>
         </div>
 
-        <!-- Passo 2: Formato de Conteúdo -->
-        <div class="form-group step-section">
-          <div class="step-header">
-            <span class="step-badge">Passo 2</span>
-            <label class="form-label">🎨 Formato de Publicação:</label>
-          </div>
-          <div class="format-selector-grid">
-            <label class="format-card active" id="format-card-video">
-              <input type="radio" name="saint-format" value="video" checked class="sr-only">
-              <span class="format-icon">🎥</span>
-              <div class="format-info">
-                <strong>Vídeo Vertical</strong>
-                <span>Reels/TikTok (Ken Burns + Voz)</span>
-              </div>
-            </label>
-            <label class="format-card" id="format-card-image">
-              <input type="radio" name="saint-format" value="image" class="sr-only">
-              <span class="format-icon">🖼️</span>
-              <div class="format-info">
-                <strong>Imagem Única</strong>
-                <span>Arte estática vertical 9:16</span>
-              </div>
-            </label>
-            <label class="format-card" id="format-card-carousel" style="opacity: 0.55;">
-              <input type="radio" name="saint-format" value="carousel" class="sr-only">
-              <span class="format-icon">📑</span>
-              <div class="format-info">
-                <strong>Carrossel (Pausado)</strong>
-                <span>Carrossel 4:5 desabilitado</span>
-              </div>
-            </label>
-          </div>
-        </div>
+        <div class="topbar-right">
+          <button class="btn btn-secondary btn-sm" id="btn-refresh-site" title="Recarregar dados e atualizar o site">
+            <i data-lucide="refresh-cw"></i>
+            <span>Atualizar Site</span>
+          </button>
 
-        <hr class="form-separator">
+          <button class="icon-btn" id="theme-toggle" title="Alternar tema Claro/Escuro" aria-label="Alternar tema">
+            <i data-lucide="sun" class="icon-sun"></i>
+            <i data-lucide="moon" class="icon-moon"></i>
+          </button>
 
-        <!-- Passo 3: Agendamento de Postagem -->
-        <div class="form-group step-section">
-          <div class="step-header">
-            <span class="step-badge">Passo 3</span>
-            <label class="checkbox-container">
-              <input type="checkbox" id="saint-schedule-checkbox" checked>
-              <span class="checkbox-checkmark"></span>
-              <span class="checkbox-text" style="font-weight: 600;">⏰ Agendar Publicação Personalizada no Buffer</span>
-            </label>
-          </div>
-
-          <div class="schedule-subpanel" id="saint-schedule-panel">
-            <label class="form-label" for="saint-schedule-time">Horário de Disparo (Personalizado):</label>
-            <input type="datetime-local" id="saint-schedule-time" class="custom-input">
-            <div class="chip-group">
-              <button type="button" class="chip-btn active" id="chip-sched-today-2030">Hoje às 20:30 (Véspera)</button>
-              <button type="button" class="chip-btn" id="chip-sched-tomorrow-6am">Amanhã às 06:00</button>
-              <button type="button" class="chip-btn" id="chip-sched-tomorrow-12pm">Amanhã às 12:00</button>
+          <div class="dropdown-wrap">
+            <button class="btn btn-primary" id="btn-new-post">
+              <i data-lucide="plus"></i>
+              <span>Novo Post</span>
+              <i data-lucide="chevron-down" class="chev"></i>
+            </button>
+            <div class="dropdown-menu" id="new-post-menu" hidden>
+              <div class="dropdown-label">Gerar Automaticamente</div>
+              <button class="dropdown-item" data-create="saint">
+                <i data-lucide="flame"></i>
+                <div>
+                  <strong>Santo do Dia</strong>
+                  <span>Calendário litúrgico + Narração IA</span>
+                </div>
+              </button>
+              <button class="dropdown-item" data-create="novena">
+                <i data-lucide="sparkles"></i>
+                <div>
+                  <strong>Novena Litúrgica (Ativa)</strong>
+                  <span id="new-novena-subtitle">Campanhas seriadas de 9 dias</span>
+                </div>
+              </button>
+              <button class="dropdown-item" data-create="gospel">
+                <i data-lucide="book-open-check"></i>
+                <div>
+                  <strong>Evangelho de Hoje</strong>
+                  <span>Liturgia diária comentada</span>
+                </div>
+              </button>
+              <button class="dropdown-item" data-create="prayer">
+                <i data-lucide="shield-check"></i>
+                <div>
+                  <strong>Oração Clássica</strong>
+                  <span>Salmo 91, São Bento, Serenidade...</span>
+                </div>
+              </button>
+              <button class="dropdown-item" data-create="psalm">
+                <i data-lucide="scroll"></i>
+                <div>
+                  <strong>Salmo do Dia</strong>
+                  <span>Liturgia Diária CNBB</span>
+                </div>
+              </button>
+              <button class="dropdown-item" data-create="community">
+                <i data-lucide="users"></i>
+                <div>
+                  <strong>Oração dos Inscritos</strong>
+                  <span>Intercessão com comentários YouTube</span>
+                </div>
+              </button>
+              <button class="dropdown-item" data-create="scripture">
+                <i data-lucide="book-marked"></i>
+                <div>
+                  <strong>Versículo da Bíblia</strong>
+                  <span>Coleta e formatação de texto</span>
+                </div>
+              </button>
+              <button class="dropdown-item" id="btn-menu-cut" data-scroll-cut="true">
+                <i data-lucide="scissors"></i>
+                <div>
+                  <strong>Corte Inteligente (The Chosen)</strong>
+                  <span>Gerar cortes via VideoFlow AI</span>
+                </div>
+              </button>
             </div>
           </div>
         </div>
-      </div>
+      </header>
 
-      <div class="modal-card-footer">
-        <button type="button" class="btn btn-secondary" id="saint-modal-cancel">Cancelar</button>
-        <button type="button" class="btn btn-primary" id="saint-modal-submit">
-          <span>✨</span> Gerar & Agendar Post
-        </button>
-      </div>
+      <!-- Views Container -->
+      <main class="views-container">
+
+        <!-- ==================== VIEW 1: INÍCIO ==================== -->
+        <section class="view active" id="view-home">
+          <div class="view-header">
+            <div>
+              <h1 id="home-greeting">Painel Operacional</h1>
+              <p class="subtitle" id="home-date-subtitle">Acompanhe produção, pipeline e agendamentos</p>
+            </div>
+            <div class="header-actions">
+              <button class="btn btn-secondary" id="btn-refresh-all">
+                <i data-lucide="refresh-cw"></i>
+                <span>Atualizar Dados</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Active Novena Campaign Card -->
+          <div class="spotlight-card novena-spotlight" id="novena-spotlight" style="display: none; margin-bottom: 20px; background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(245, 158, 11, 0.12)); border: 1px solid rgba(245, 158, 11, 0.3);">
+            <div class="spotlight-content">
+              <div class="spotlight-badges">
+                <span class="badge badge-warn"><i data-lucide="flame"></i> Campanha de Novena Ativa</span>
+                <span class="badge badge-neutral" id="novena-badge-date">Festa Solene em breve</span>
+              </div>
+              <h2 id="novena-spotlight-title">Novena Litúrgica</h2>
+              <p id="novena-spotlight-desc">Reze com os fiéis durante os 9 dias que antecedem a solenidade.</p>
+            </div>
+            <div class="spotlight-actions">
+              <button class="btn btn-primary" id="btn-novena-action">
+                <i data-lucide="sparkles"></i>
+                <span id="btn-novena-action-label">Gerar Dia da Novena</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Hero Suggestion Card -->
+          <div class="spotlight-card" id="home-spotlight">
+            <div class="spotlight-content">
+              <div class="spotlight-badges">
+                <span class="badge badge-accent"><i data-lucide="sparkles"></i> Sugestão Litúrgica</span>
+                <span class="badge badge-neutral" id="spotlight-date">Liturgia de Hoje/Amanhã</span>
+              </div>
+              <h2 id="spotlight-title">Santo do Dia</h2>
+              <p id="spotlight-desc">Gere o vídeo vertical 9:16 com narração neural de voz e agende a publicação na melhor janela de engajamento.</p>
+            </div>
+            <div class="spotlight-actions">
+              <button class="btn btn-primary" id="btn-hero-action">
+                <i data-lucide="wand-2"></i>
+                <span>Configurar & Agendar</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- VideoFlow AI Cut Card -->
+          <div class="spotlight-card" id="videoflow-cut-card" style="margin-bottom: 20px; background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(168, 85, 247, 0.1)); border: 1px solid rgba(168, 85, 247, 0.3);">
+            <div class="spotlight-content" style="width: 100%;">
+              <div class="spotlight-badges">
+                <span class="badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc;"><i data-lucide="scissors"></i> VideoFlow AI — Cortes de Séries & Filmes</span>
+                <span class="badge badge-neutral" id="vf-status-badge">Motor Conectado (Oracle VM)</span>
+              </div>
+              <h2>Cortes do Nicho Bíblico (The Chosen & Mensagens)</h2>
+              <p class="subtitle" style="margin-bottom: 14px;">Cole o link de um vídeo do YouTube. A IA detecta os momentos de maior impacto espiritual, enquadra em 9:16 vertical com blur e gera legendas dinâmicas.</p>
+
+              <div class="videoflow-cut-form" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                <div style="flex: 1; min-width: 280px; position: relative;">
+                  <input type="url" id="vf-cut-url" class="input-control" placeholder="Cole o link do YouTube (ex: The Chosen, pregação, filme)..." style="width: 100%; padding-left: 36px;" />
+                  <i data-lucide="youtube" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; color: #ef4444; pointer-events: none;"></i>
+                </div>
+
+                <select id="vf-cut-preset" class="input-control" style="width: auto; min-width: 140px;">
+                  <option value="biblico" selected>✝️ Bíblico / Fé</option>
+                  <option value="emotional">🥺 Emoção / Ajuda</option>
+                  <option value="general">✨ Geral / Viral</option>
+                </select>
+
+                <select id="vf-cut-count" class="input-control" style="width: auto; min-width: 110px;">
+                  <option value="1">1 corte</option>
+                  <option value="2">2 cortes</option>
+                  <option value="3" selected>3 cortes</option>
+                  <option value="5">5 cortes</option>
+                </select>
+
+                <button class="btn btn-primary" id="btn-vf-generate-cut" style="background: linear-gradient(135deg, #8b5cf6, #6366f1); border-color: #8b5cf6;">
+                  <i data-lucide="scissors"></i>
+                  <span>Gerar Cortes</span>
+                </button>
+              </div>
+
+              <div id="vf-cut-progress" style="display: none; margin-top: 14px; padding: 12px 16px; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px solid rgba(168, 85, 247, 0.25);">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+                  <div style="display: flex; align-items: center; gap: 10px;">
+                    <span class="spinner-sm" style="display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.2); border-top-color: #c084fc; border-radius: 50%; animation: spin 0.8s linear infinite;"></span>
+                    <span id="vf-progress-text" style="font-size: 0.9rem; font-weight: 500;">Enviando requisição para a VM VideoFlow...</span>
+                  </div>
+                  <span id="vf-progress-timer" class="muted-sm" style="font-family: monospace;">00:00</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Interactive Pipeline Stepper -->
+          <div class="section-block">
+            <div class="section-head">
+              <h3>Pipeline de Produção</h3>
+              <span class="muted-sm">Clique em uma etapa para filtrar a biblioteca</span>
+            </div>
+
+            <div class="pipeline-grid">
+              <div class="pipe-card" data-go-status="draft" data-pipeline-filter="verses">
+                <div class="pipe-top">
+                  <span class="pipe-step">Etapa 1</span>
+                  <i data-lucide="download-cloud" class="pipe-icon"></i>
+                </div>
+                <div class="pipe-val" id="stat-pipe-verses">-</div>
+                <div class="pipe-title">Versos Coletados</div>
+                <button class="btn btn-ghost btn-sm pipe-action" id="btn-action-process-pipe">
+                  <i data-lucide="cpu"></i> Formatar com IA
+                </button>
+              </div>
+
+              <div class="pipe-card" data-go-status="draft">
+                <div class="pipe-top">
+                  <span class="pipe-step">Etapa 2</span>
+                  <i data-lucide="sparkles" class="pipe-icon"></i>
+                </div>
+                <div class="pipe-val" id="stat-pipe-formatted">-</div>
+                <div class="pipe-title">Posts Formatados</div>
+                <button class="btn btn-ghost btn-sm pipe-action" id="btn-action-render-pipe">
+                  <i data-lucide="clapperboard"></i> Renderizar Vídeos
+                </button>
+              </div>
+
+              <div class="pipe-card highlight" data-go-status="ready">
+                <div class="pipe-top">
+                  <span class="pipe-step">Etapa 3</span>
+                  <i data-lucide="clock" class="pipe-icon"></i>
+                </div>
+                <div class="pipe-val" id="stat-pipe-pending">-</div>
+                <div class="pipe-title">Fila Pendente</div>
+                <button class="btn btn-primary btn-sm pipe-action" id="btn-action-dispatch-pipe">
+                  <i data-lucide="rocket"></i> Disparar Fila
+                </button>
+              </div>
+
+              <div class="pipe-card" data-go-status="published">
+                <div class="pipe-top">
+                  <span class="pipe-step">Etapa 4</span>
+                  <i data-lucide="globe" class="pipe-icon"></i>
+                </div>
+                <div class="pipe-val" id="stat-pipe-sent">-</div>
+                <div class="pipe-title">Publicados / Enviados</div>
+                <span class="pipe-meta" id="stat-pipe-sent-meta">Total histórico</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Two Column Split: Upcoming + Operational Attention -->
+          <div class="home-columns">
+            <div class="panel-card">
+              <div class="panel-head">
+                <div>
+                  <h3>Próximos Agendamentos</h3>
+                  <p class="muted-sm">Itens na fila com envio programado</p>
+                </div>
+                <button class="btn btn-ghost btn-sm" data-nav-target="calendar">Ver Calendário →</button>
+              </div>
+              <div class="item-list" id="home-upcoming-list">
+                <div class="muted-sm" style="padding: 12px; text-align: center;">Carregando agendamentos...</div>
+              </div>
+            </div>
+
+            <div class="panel-card">
+              <div class="panel-head">
+                <div>
+                  <h3>Diagnóstico & Ações Rápidas</h3>
+                  <p class="muted-sm">Status operacional do pipeline</p>
+                </div>
+                <button class="btn btn-ghost btn-sm" data-nav-target="queue">Abrir Fila →</button>
+              </div>
+              <div class="item-list" id="home-attention-list">
+                <!-- Preenchido dinamicamente -->
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== VIEW 2: CONTEÚDO ==================== -->
+        <section class="view" id="view-content">
+          <div class="view-header">
+            <div>
+              <h1>Biblioteca de Conteúdo</h1>
+              <p class="subtitle">Gerencie, edite e agende posts com mídia 9:16 gerada</p>
+            </div>
+            <div class="header-actions">
+              <div class="segmented" role="group" aria-label="Modo de exibição">
+                <button class="seg-btn active" data-layout="grid" title="Grade"><i data-lucide="layout-grid"></i></button>
+                <button class="seg-btn" data-layout="list" title="Lista"><i data-lucide="list"></i></button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Eixo 1: Tabs de Status -->
+          <div class="status-tabs" id="content-status-tabs" role="tablist">
+            <button class="status-tab active" data-status="all">Todos <span class="tab-count" id="count-all">0</span></button>
+            <button class="status-tab" data-status="ready">Prontos p/ Postar <span class="tab-count" id="count-ready">0</span></button>
+            <button class="status-tab" data-status="unpublished">Não Publicados <span class="tab-count" id="count-unpublished">0</span></button>
+            <button class="status-tab" data-status="published">Publicados <span class="tab-count" id="count-published">0</span></button>
+          </div>
+
+          <!-- Eixo 2: Chips de Categoria & Ordenação -->
+          <div class="content-toolbar">
+            <div class="category-chips" id="category-chips">
+              <button class="cat-chip active" data-category="all">Todas Categorias</button>
+              <button class="cat-chip" data-category="scripture">📖 Escrituras (<span id="count-scriptures">0</span>)</button>
+              <button class="cat-chip" data-category="gospel">📜 Evangelho (<span id="count-gospel">0</span>)</button>
+              <button class="cat-chip" data-category="saint">🕊️ Santo do Dia (<span id="count-saints">0</span>)</button>
+              <button class="cat-chip" data-category="novena">🔥 Novenas (<span id="count-novenas">0</span>)</button>
+              <button class="cat-chip" data-category="prayer">🙏 Orações (<span id="count-prayers">0</span>)</button>
+              <button class="cat-chip" data-category="community">🤝 Comunidade (<span id="count-community">0</span>)</button>
+            </div>
+
+            <div class="toolbar-right">
+              <select class="select-input" id="sort-select" aria-label="Ordenar por">
+                <option value="newest">Mais recentes</option>
+                <option value="oldest">Mais antigos</option>
+                <option value="reference">Referência A-Z</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Barra de Ações em Lote -->
+          <div class="bulk-bar" id="bulk-bar" hidden>
+            <div class="bulk-left">
+              <input type="checkbox" id="bulk-check-all" checked>
+              <span><strong id="bulk-count">0</strong> selecionados</span>
+            </div>
+            <div class="bulk-actions">
+              <button class="btn btn-secondary btn-sm" id="btn-bulk-render"><i data-lucide="video"></i> Renderizar Vídeos</button>
+              <button class="btn btn-secondary btn-sm" id="btn-bulk-schedule"><i data-lucide="calendar-clock"></i> Agendar no Buffer</button>
+              <button class="btn btn-primary btn-sm" id="btn-bulk-publish"><i data-lucide="send"></i> Publicar Agora</button>
+            </div>
+          </div>
+
+          <!-- Grade de Posts -->
+          <div class="media-grid" id="posts-container">
+            <div class="panel-card" style="grid-column: 1/-1; text-align:center; padding: 40px;">
+              Carregando publicações do banco local...
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== VIEW 3: CALENDÁRIO ==================== -->
+        <section class="view" id="view-calendar">
+          <div class="view-header">
+            <div>
+              <h1>Calendário Editorial & Litúrgico</h1>
+              <p class="subtitle" id="calendar-header-sub">Visualize eventos litúrgicos e postagens programadas</p>
+            </div>
+            <div class="header-actions">
+              <div class="cal-nav">
+                <button class="icon-btn sm" id="btn-cal-prev" title="Semana anterior"><i data-lucide="chevron-left"></i></button>
+                <span class="cal-range" id="cal-range-label">Semana Atual</span>
+                <button class="icon-btn sm" id="btn-cal-next" title="Próxima semana"><i data-lucide="chevron-right"></i></button>
+              </div>
+              <button class="btn btn-primary" id="btn-cal-new-saint">
+                <i data-lucide="calendar-plus"></i>
+                <span>Agendar Santo</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="calendar-legend">
+            <span class="leg-item"><i class="dot-cat saint"></i> Santo do Dia</span>
+            <span class="leg-item"><i class="dot-cat gospel"></i> Evangelho</span>
+            <span class="leg-item"><i class="dot-cat scripture"></i> Escrituras</span>
+            <span class="leg-item"><i class="dot-cat prayer"></i> Orações</span>
+          </div>
+
+          <div class="calendar-board" id="calendar-board">
+            <!-- Gerado via app.js com dados do calendário litúrgico e posts -->
+          </div>
+        </section>
+
+        <!-- ==================== VIEW 4: PUBLICAÇÃO (FILA) ==================== -->
+        <section class="view" id="view-queue">
+          <div class="view-header">
+            <div>
+              <h1>Fila de Publicação</h1>
+              <p class="subtitle">Histórico de envios, agendamentos e status das plataformas</p>
+            </div>
+            <div class="header-actions">
+              <button class="btn btn-secondary" id="btn-queue-refresh"><i data-lucide="refresh-cw"></i> Atualizar Fila</button>
+              <button class="btn btn-danger-soft" id="btn-queue-clear" title="Remover da fila todos os posts pendentes que ainda não foram disparados"><i data-lucide="trash-2"></i> Limpar Fila Pendente</button>
+              <button class="btn btn-primary" id="btn-queue-dispatch"><i data-lucide="rocket"></i> Disparar Fila</button>
+            </div>
+          </div>
+
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Conteúdo / Referência</th>
+                  <th>Plataforma</th>
+                  <th>Status</th>
+                  <th>Tentativas</th>
+                  <th>Criado Em</th>
+                  <th>Enviado Em</th>
+                  <th class="text-right">Ação</th>
+                </tr>
+              </thead>
+              <tbody id="queue-tbody">
+                <tr><td colspan="8" style="text-align:center; padding: 24px;">Carregando fila...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ==================== VIEW 5: CONFIGURAÇÕES ==================== -->
+        <section class="view" id="view-settings">
+          <div class="view-header">
+            <div>
+              <h1>Configurações & Sistema</h1>
+              <p class="subtitle">Perfis sociais, credenciais ativas e logs de execução</p>
+            </div>
+          </div>
+
+          <div class="settings-grid">
+            <div class="panel-card">
+              <div class="panel-head">
+                <div>
+                  <h3>Perfis Conectados via Postproxy API</h3>
+                  <p class="muted-sm">Configurados no arquivo <code>.env</code></p>
+                </div>
+              </div>
+              <div class="item-list" id="profiles-container">
+                <div class="muted-sm" style="padding: 12px;">Carregando perfis...</div>
+              </div>
+            </div>
+
+            <div class="panel-card">
+              <div class="panel-head">
+                <div>
+                  <h3>Logs do Sistema em Tempo Real</h3>
+                  <p class="muted-sm">Últimos eventos do motor Bible Reels</p>
+                </div>
+                <button class="btn btn-ghost btn-sm" id="btn-refresh-logs">Atualizar</button>
+              </div>
+              <pre class="log-box" id="log-content">Carregando logs...</pre>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== VIEW 6: GESTÃO DE USUÁRIOS (ADMIN) ==================== -->
+        <section class="view" id="view-users">
+          <header class="view-header">
+            <div>
+              <h1>Gestão de Usuários e Aprovações</h1>
+              <p class="view-sub">Aprove ou bloqueie solicitações de acesso ao Studio.</p>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="btn-refresh-users">
+              <i data-lucide="refresh-cw"></i>
+              <span>Atualizar</span>
+            </button>
+          </header>
+
+          <div class="panel-card" style="margin-top: 20px;">
+            <div class="panel-head">
+              <div>
+                <h3>Contas Cadastradas</h3>
+                <p class="muted-sm">Novas contas iniciam com status <strong>Pendente</strong> e exigem sua autorização para login.</p>
+              </div>
+            </div>
+            <div style="overflow-x: auto;">
+              <table class="data-table" id="users-table" style="width: 100%; border-collapse: collapse; text-align: left;">
+                <thead>
+                  <tr style="border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 12px;">
+                    <th style="padding: 12px;">Nome</th>
+                    <th style="padding: 12px;">E-mail</th>
+                    <th style="padding: 12px;">Perfil / Nível</th>
+                    <th style="padding: 12px;">Status</th>
+                    <th style="padding: 12px;">Data Cadastro</th>
+                    <th style="padding: 12px; text-align: right;">Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="users-table-body">
+                  <tr><td colspan="6" style="padding: 16px; text-align: center; color: var(--text-muted);">Carregando usuários...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+      </main>
     </div>
   </div>
 
-  <!-- Modal Rápido: Agendar Post Existente -->
-  <div class="modal-overlay" id="quick-schedule-modal">
-    <div class="modal-card" style="max-width: 480px;">
-      <div class="modal-card-header">
-        <div class="modal-card-title">⏰ Agendar Envio no Buffer</div>
-        <button class="modal-close-btn" id="quick-schedule-close-btn">&times;</button>
+  <!-- ==================== DRAWER LATERAL: INSPEÇÃO / EDIÇÃO DO POST ==================== -->
+  <div class="backdrop" id="preview-backdrop" hidden></div>
+  <aside class="drawer" id="preview-drawer" aria-hidden="true" aria-label="Detalhes do post">
+    <div class="drawer-header">
+      <div>
+        <span class="badge badge-accent" id="drawer-post-badge">Post</span>
+        <h2 id="modal-reference">Referência</h2>
       </div>
+      <button class="icon-btn" id="modal-close-btn" aria-label="Fechar painel"><i data-lucide="x"></i></button>
+    </div>
 
-      <div class="modal-card-body">
-        <p class="modal-card-desc" id="quick-schedule-post-label">
-          Selecione o dia e horário personalizado para agendar o post:
-        </p>
-
-        <div class="form-group">
-          <label class="form-label" for="quick-schedule-time-input">Data e Hora de Publicação:</label>
-          <input type="datetime-local" id="quick-schedule-time-input" class="custom-input">
-          <div class="chip-group">
-            <button type="button" class="chip-btn active" id="chip-quick-today-2030">Hoje às 20:30 (Véspera)</button>
-            <button type="button" class="chip-btn" id="chip-quick-tomorrow-6am">Amanhã às 06:00</button>
-            <button type="button" class="chip-btn" id="chip-quick-today-6pm">Hoje às 18:00</button>
-          </div>
+    <div class="drawer-body">
+      <div class="drawer-preview-col">
+        <div class="phone-mockup" id="modal-media-slot">
+          <!-- Vídeo ou Imagem real inserido aqui -->
         </div>
       </div>
 
-      <div class="modal-card-footer">
-        <button type="button" class="btn btn-secondary" id="quick-schedule-cancel">Cancelar</button>
-        <button type="button" class="btn btn-primary" id="quick-schedule-submit">
-          <span>📅</span> Confirmar Agendamento
+      <div class="drawer-form-col">
+        <div class="field">
+          <label>Legenda Completa</label>
+          <div id="modal-text" class="text-display"></div>
+        </div>
+
+        <div class="field">
+          <label>Hashtags</label>
+          <div class="post-tags" id="modal-hashtags"></div>
+        </div>
+
+        <div class="field" id="drawer-schedule-quick-box">
+          <label for="quick-schedule-time">Horário de Agendamento</label>
+          <input type="datetime-local" id="quick-schedule-time" class="input-control">
+          <div class="quick-chips">
+            <button type="button" class="q-chip active" id="chip-q-today-2030">Hoje 20:30 (Véspera)</button>
+            <button type="button" class="q-chip" id="chip-q-tomorrow-6am">Amanhã 06:00</button>
+            <button type="button" class="q-chip" id="chip-q-tomorrow-12pm">Amanhã 12:00</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="drawer-footer">
+      <button class="btn btn-ghost" id="modal-btn-render-single">
+        <i data-lucide="video"></i> Renderizar Vídeo
+      </button>
+      <div class="drawer-footer-right">
+        <button class="btn btn-secondary" id="modal-btn-schedule">
+          <i data-lucide="calendar-clock"></i> Agendar no Buffer
+        </button>
+        <button class="btn btn-primary" id="modal-btn-publish">
+          <i data-lucide="send"></i> Publicar Agora
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ==================== MODAL WIZARD: GERAR NOVO POST ==================== -->
+  <div class="backdrop" id="wizard-backdrop" hidden></div>
+  <div class="modal-dialog" id="saint-modal" role="dialog" aria-modal="true" aria-labelledby="wiz-modal-title" hidden>
+    <div class="modal-header">
+      <div>
+        <span class="badge badge-accent">Gerador Inteligente</span>
+        <h2 id="wiz-modal-title">🕊️ Gerar & Agendar Conteúdo</h2>
+      </div>
+      <button class="icon-btn" id="saint-modal-close-btn" aria-label="Fechar modal"><i data-lucide="x"></i></button>
+    </div>
+
+    <div class="modal-body">
+      <!-- Seletor do Tipo -->
+      <div class="field">
+        <label>1. Tipo de Publicação</label>
+        <div class="type-selector" id="wiz-type-selector">
+          <button type="button" class="type-card active" data-wtype="saint">
+            <i data-lucide="flame"></i>
+            <strong>Santo do Dia</strong>
+            <span>História + Oração</span>
+          </button>
+          <button type="button" class="type-card" data-wtype="gospel">
+            <i data-lucide="book-open-check"></i>
+            <strong>Evangelho</strong>
+            <span>Liturgia do Dia</span>
+          </button>
+          <button type="button" class="type-card" data-wtype="prayer">
+            <i data-lucide="heart-handshake"></i>
+            <strong>Oração</strong>
+            <span>Clássica Devocional</span>
+          </button>
+          <button type="button" class="type-card" data-wtype="community">
+            <i data-lucide="users"></i>
+            <strong>Comunidade</strong>
+            <span>Pedidos dos Inscritos</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Configuração específica do Santo ou Data -->
+      <div class="field" id="wiz-saint-group">
+        <label for="saint-select-input">Santo / Data Litúrgica:</label>
+        <select id="saint-select-input" class="input-control" style="margin-bottom: 6px;">
+          <option value="auto" selected>✨ Automático pela data (Canção Nova / Vatican News)</option>
+        </select>
+        <input type="date" id="saint-date-input" class="input-control">
+        <div class="quick-chips" style="margin-top: 6px;">
+          <button type="button" class="q-chip" id="chip-saint-today">Hoje</button>
+          <button type="button" class="q-chip active" id="chip-saint-tomorrow">Amanhã</button>
+          <button type="button" class="q-chip" id="chip-saint-1012">12/10 (N. Sra. Aparecida)</button>
+          <button type="button" class="q-chip" id="chip-saint-1013">13/10 (N. Sra. de Fátima)</button>
+        </div>
+      </div>
+
+      <!-- Formato de Conteúdo -->
+      <div class="field">
+        <label>2. Formato de Mídia</label>
+        <div class="format-selector-grid">
+          <label class="format-card active" id="format-card-video">
+            <input type="radio" name="saint-format" value="video" checked class="sr-only">
+            <span class="format-icon">🎥</span>
+            <div class="format-info">
+              <strong>Vídeo Vertical 9:16</strong>
+              <span>Ken Burns + Narração de Voz Neural</span>
+            </div>
+          </label>
+          <label class="format-card" id="format-card-image">
+            <input type="radio" name="saint-format" value="image" class="sr-only">
+            <span class="format-icon">🖼️</span>
+            <div class="format-info">
+              <strong>Imagem Única 9:16</strong>
+              <span>Arte vertical com tipografia clássica</span>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Agendamento no Buffer -->
+      <div class="field">
+        <label class="checkbox-container">
+          <input type="checkbox" id="saint-schedule-checkbox" checked>
+          <span class="checkbox-checkmark"></span>
+          <span class="checkbox-text" style="font-weight: 600;">⏰ Agendar Envio no Buffer</span>
+        </label>
+
+        <div class="schedule-subpanel" id="saint-schedule-panel" style="margin-top: 8px;">
+          <input type="datetime-local" id="saint-schedule-time" class="input-control">
+          <div class="quick-chips" style="margin-top: 6px;">
+            <button type="button" class="q-chip active" id="chip-sched-today-2030">Hoje às 20:30 (Véspera)</button>
+            <button type="button" class="q-chip" id="chip-sched-tomorrow-6am">Amanhã às 06:00</button>
+            <button type="button" class="q-chip" id="chip-sched-tomorrow-12pm">Amanhã às 12:00</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" id="saint-modal-cancel">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="saint-modal-submit">
+        <i data-lucide="sparkles"></i>
+        <span>Gerar & Agendar Post</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-stack" id="toast-container"></div>
+
+  <!-- ==================== TELA DE AUTENTICAÇÃO (LOGIN / REGISTRO / PENDENTE) ==================== -->
+  <div class="auth-overlay" id="auth-overlay" style="display: none; position: fixed; inset: 0; background: rgba(9, 9, 11, 0.96); backdrop-filter: blur(12px); z-index: 9999; align-items: center; justify-content: center; padding: 20px;">
+    <div class="auth-card" style="width: 100%; max-width: 420px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 32px; box-shadow: var(--shadow-lg);">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <div style="display: inline-flex; width: 48px; height: 48px; border-radius: 12px; background: var(--accent); align-items: center; justify-content: center; margin-bottom: 12px;">
+          <i data-lucide="sparkles" style="color: white; width: 24px; height: 24px;"></i>
+        </div>
+        <h2 style="font-size: 22px; font-weight: 700; margin: 0 0 6px 0;">Bible Reels Studio</h2>
+        <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Plataforma Autônoma de Conteúdo Cristão</p>
+      </div>
+
+      <!-- Formulário de Login -->
+      <form id="form-login">
+        <div class="field" style="margin-bottom: 14px;">
+          <label style="display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">E-mail</label>
+          <input type="email" id="login-email" class="input-control" placeholder="seu@email.com" required style="width: 100%;">
+        </div>
+        <div class="field" style="margin-bottom: 18px;">
+          <label style="display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">Senha</label>
+          <input type="password" id="login-password" class="input-control" placeholder="••••••••" required style="width: 100%;">
+        </div>
+        <div id="login-error-msg" style="display: none; font-size: 13px; color: var(--danger); background: var(--danger-soft); padding: 10px; border-radius: var(--radius-sm); margin-bottom: 16px;"></div>
+        <button type="submit" class="btn btn-primary" id="btn-submit-login" style="width: 100%; justify-content: center; padding: 12px;">
+          <span>Entrar no Studio</span>
+        </button>
+        <div style="text-align: center; margin-top: 16px; font-size: 13px; color: var(--text-muted);">
+          Não possui acesso? <a href="#" id="link-show-register" style="color: var(--accent-text); text-decoration: none; font-weight: 600;">Criar uma conta</a>
+        </div>
+      </form>
+
+      <!-- Formulário de Registro -->
+      <form id="form-register" style="display: none;">
+        <div class="field" style="margin-bottom: 12px;">
+          <label style="display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">Seu Nome</label>
+          <input type="text" id="reg-name" class="input-control" placeholder="Nome Completo" required style="width: 100%;">
+        </div>
+        <div class="field" style="margin-bottom: 12px;">
+          <label style="display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">E-mail</label>
+          <input type="email" id="reg-email" class="input-control" placeholder="seu@email.com" required style="width: 100%;">
+        </div>
+        <div class="field" style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">Crie uma Senha (mínimo 6 dígitos)</label>
+          <input type="password" id="reg-password" class="input-control" placeholder="••••••••" minlength="6" required style="width: 100%;">
+        </div>
+        <div id="reg-error-msg" style="display: none; font-size: 13px; color: var(--danger); background: var(--danger-soft); padding: 10px; border-radius: var(--radius-sm); margin-bottom: 16px;"></div>
+        <button type="submit" class="btn btn-primary" id="btn-submit-register" style="width: 100%; justify-content: center; padding: 12px;">
+          <span>Solicitar Acesso</span>
+        </button>
+        <div style="text-align: center; margin-top: 16px; font-size: 13px; color: var(--text-muted);">
+          Já tem conta? <a href="#" id="link-show-login" style="color: var(--accent-text); text-decoration: none; font-weight: 600;">Voltar ao login</a>
+        </div>
+      </form>
+
+      <!-- Painel de Conta Pendente -->
+      <div id="auth-pending-card" style="display: none; text-align: center; padding: 10px 0;">
+        <div style="font-size: 44px; margin-bottom: 10px;">⏳</div>
+        <h3 style="font-size: 18px; margin: 0 0 8px 0;">Aguardando Aprovação</h3>
+        <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5; margin: 0 0 20px 0;">
+          Sua conta foi criada com sucesso, mas o acesso ao Studio requer aprovação do administrador do sistema (<strong style="color: var(--text-primary);">lucas.r.schmidt@gmail.com</strong>).
+        </p>
+        <button type="button" class="btn btn-secondary" id="btn-pending-logout" style="width: 100%; justify-content: center;">
+          <span>Sair / Voltar</span>
         </button>
       </div>
     </div>
   </div>
 
-  <!-- Container de Toasts -->
-  <div class="toast-container" id="toast-container"></div>
-
-  <script src="app.js"></script>
+  <script src="app.js?v=2"></script>
 </body>
 </html>
