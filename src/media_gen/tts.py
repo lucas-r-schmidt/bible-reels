@@ -204,10 +204,10 @@ def format_ass_time(seconds: float) -> str:
     return f"{hrs}:{mins:02d}:{secs:02d}.{centis:02d}"
 
 
-def split_sentence_into_subtitles(text: str, max_words: int = 5, max_chars: int = 26) -> list[list[str]]:
+def split_sentence_into_subtitles(text: str, max_words: int = 8, max_chars: int = 42) -> list[list[str]]:
     """
-    Divide frase em blocos curtos (3 a 5 palavras) respeitando pontuação natural
-    para retenção visual máxima em Reels e TikTok.
+    Divide a fala em linhas completas o suficiente para transmitir a história,
+    sem fragmentar o texto em pequenos pedaços de apenas 3 a 5 palavras.
     """
     words = text.strip().split()
     if not words:
@@ -255,7 +255,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         clean_s = text.strip()
         if not clean_s:
             continue
-        chunks = split_sentence_into_subtitles(clean_s, max_words=5, max_chars=26)
+        chunks = split_sentence_into_subtitles(clean_s, max_words=8, max_chars=42)
         if not chunks:
             continue
 
