@@ -1021,7 +1021,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const drawerBadge = document.getElementById("drawer-post-badge");
 
     if (modalRef) modalRef.textContent = post.reference || `Post #${post.id}`;
-    if (modalTxt) modalTxt.textContent = post.formatted_text || post.original_text || post.verse_text || post.caption || "";
+    if (modalTxt) modalTxt.textContent = post.caption || post.formatted_text || post.original_text || post.verse_text || "";
     if (drawerBadge) drawerBadge.textContent = getCategoryLabel(getPostSourceCategory(post));
 
     // Mídia
