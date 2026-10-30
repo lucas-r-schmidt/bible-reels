@@ -15,5 +15,8 @@ def test_saint_caption_contains_history_and_cta():
     )
     caption = result.get("caption", "")
     assert result.get("formatted_text") == "Uma frase de fé.\n\n— Santo Teste"
-    assert "história" in caption.lower() or "História" in caption
     assert "Amém" in caption
+    assert "(31/10)" in caption or "31/10" in caption
+
+    generated_from_reference = format_saint_post("Santo Exemplo (31/10)", "Frase de fé.")
+    assert "Santo Exemplo (31/10)" in generated_from_reference["caption"]

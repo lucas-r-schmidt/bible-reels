@@ -208,6 +208,10 @@ def format_saint_post(reference: str, text: str, saint_metadata: dict | None = N
     history_ctx = saint.get("history", "")
     prayer_ctx = saint.get("prayer", "")
     date_str = saint.get("date_str", "")
+    if not date_str:
+        date_match = re.search(r"\((\d{1,2}/\d{1,2})\)", reference)
+        if date_match:
+            date_str = date_match.group(1)
 
     eve_instruction = (
         f"Este post celebra a memória litúrgica de {saint_name} ({date_str}). A introdução da legenda deve saudar os devotos celebrando {saint_name} ({date_str}) de forma atemporal e reverente (ex: '🕊️ Santo do Dia: {saint_name} ({date_str}) — Celebramos a memória litúrgica...'), preparando o coração para a oração e a bênção. Evite palavras restritivas como 'amanhã' para que a publicação seja perfeita tanto na vigília noturna (YouTube/TikTok) quanto na manhã litúrgica (Instagram)."
