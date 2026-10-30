@@ -68,6 +68,102 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 _ACTIVE_CUT_JOBS: dict[str, dict] = {}
 
 
+def _regenerate_post_media(db: DBManager, post_id: int, include_images: bool = True) -> dict[str, Any]:
+    """Regenera mídia de um post sem substituir conteúdo já publicado."""
+    row = db.conn.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
+    if not row:
+        raise ValueError("Post não encontrado")
+    post = dict(row)
+    verse_row = db.conn.execute("SELECT reference, source, text FROM verses WHERE id = ?", (post["verse_id"],)).fetchone()
+    if not verse_row:
+        raise ValueError("Tema associado ao post não encontrado")
+    verse = dict(verse_row)
+    reference = verse["reference"] or "Reflexão"
+    source = verse["source"] or ""
+    ref_lower = reference.lower()
+
+    content_type = source or "verse"
+    image_path = post.get("image_path", "")
+    video_path = post.get("video_path", "")
+    generated_slides: list[Path] = []
+
+    is_saint = source == "saint" or any(k in ref_lower for k in ("santo", "santa", "são", "sao", "senhora"))
+    is_gospel = source == "gospel" or "evangelho" in ref_lower
+    is_novena = source == "novena" or "novena" in ref_lower
+
+    if is_saint:
+        content_type = "saint"
+        from src.collector.saints import get_saint_images
+        from src.media_gen.carousel_builder import generate_saint_carousel, build_saint_narration_text
+        import re
+        target_date = None
+        date_match = re.search(r"\((\d{1,2})/(\d{1,2})\)", reference)
+        if date_match:
+            d_day, d_month = map(int, date_match.groups())
+            target_date = date(date.today().year, d_month, d_day)
+        saint_name = reference.split("(")[0].strip()
+        saint_meta = get_saint_for_date(target_date) or {}
+        raw_text = post.get("formatted_text") or verse["text"]
+        title_hook = saint_meta.get("quote", "") or raw_text.split("\n\n—")[0]
+        story_text = saint_meta.get("history", "") or raw_text
+        prayer_text = saint_meta.get("prayer", "")
+        if include_images:
+            slides = generate_saint_carousel(
+                post_id=post_id,
+                saint_name=saint_name,
+                title_hook=title_hook,
+                story_text=story_text,
+                prayer_text=prayer_text,
+                bg_image_paths=get_saint_images(saint_name, count=5, target_date=target_date),
+            )
+            generated_slides = slides
+            if slides:
+                image_path = str(slides[0])
+        narration = build_saint_narration_text(saint_name, title_hook, story_text, prayer_text)
+    elif is_gospel:
+        content_type = "gospel"
+        from src.media_gen.tts import build_gospel_narration_text
+        narration = build_gospel_narration_text(reference, verse["text"] or post["formatted_text"], concise=False)
+    elif is_novena:
+        content_type = "novena"
+        from src.media_gen.tts import build_novena_narration_text
+        narration = build_novena_narration_text(reference, verse["text"] or post["formatted_text"])
+    else:
+        from src.collector.backgrounds import get_thematic_background
+        from src.media_gen.image_builder import generate_verse_scenes
+        from src.media_gen.tts import build_verse_narration_text
+        if include_images:
+            generated_slides = generate_verse_scenes(post_id, reference, post["formatted_text"], post.get("visual_prompt", ""))
+            if generated_slides:
+                image_path = str(generated_slides[0])
+            else:
+                background = get_thematic_background(post.get("visual_prompt", ""), reference=reference)
+                image_path = str(generate_post_image(post_id=post_id, text=post["formatted_text"], reference=reference, bg_image_path=background))
+        narration = build_verse_narration_text(post["formatted_text"], reference=reference)
+
+    video_target = Path(image_path) if image_path and Path(image_path).is_file() else None
+    if include_images and generated_slides:
+        video_slides = generated_slides
+    elif not video_target and post.get("video_path"):
+        raise ValueError("Imagem base não disponível para renderizar o vídeo")
+    else:
+        video_slides = None
+
+    rendered = generate_video_from_image(
+        video_target,
+        slides=video_slides,
+        narration_text=narration,
+        theme=content_type,
+        content_type=content_type,
+    ) if video_target else None
+    if rendered:
+        video_path = str(rendered)
+    elif video_target:
+        raise RuntimeError("Falha ao gerar vídeo")
+
+    db.update_post_media(post_id, image_path, video_path)
+    return {"post_id": post_id, "image_path": image_path, "video_path": video_path, "content_type": content_type}
+
 
 def _is_safe_subpath(base_dir: Path, target: Path) -> bool:
     """Garante que o caminho resolvido permanece estritamente dentro do diretório base."""
@@ -997,6 +1093,80 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                     db.enqueue(post_id, pub)
                     processed += 1
                 self._send_json({"success": True, "processed": processed, "publisher": pub})
+                return
+
+            if path in ("/api/actions/regenerate-video", "/api/actions/regenerate-full"):
+                post_id_raw = data.get("post_id")
+                if not post_id_raw:
+                    self._send_json({"error": "post_id obrigatório"}, status=400)
+                    return
+                post_id = int(post_id_raw)
+                row = db.conn.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
+                if not row:
+                    self._send_json({"error": "Post não encontrado"}, status=404)
+                    return
+                original = dict(row)
+                working_id = post_id
+                created_draft = False
+                if original.get("status") == "published":
+                    working_id = db.clone_post_draft(post_id)
+                    created_draft = working_id is not None
+                    if not created_draft:
+                        self._send_json({"error": "Não foi possível criar a nova versão"}, status=500)
+                        return
+
+                if path == "/api/actions/regenerate-full":
+                    verse = db.conn.execute("SELECT reference, source, text FROM verses WHERE id = ?", (original["verse_id"],)).fetchone()
+                    if not verse:
+                        self._send_json({"error": "Tema associado não encontrado"}, status=404)
+                        return
+                    verse = dict(verse)
+                    source = verse.get("source", "")
+                    reference = verse.get("reference", "")
+                    raw_text = verse.get("text", original["formatted_text"])
+                    formatted = None
+                    try:
+                        if source == "saint":
+                            formatted = format_saint_post(reference, raw_text)
+                        elif source == "gospel":
+                            formatted = format_gospel_post(reference, raw_text)
+                        elif source == "novena":
+                            formatted = format_novena_post({
+                                "saint_name": reference.split("(")[0].strip(),
+                                "novena_day": 1,
+                                "saint_data": {"history": raw_text, "prayer": raw_text},
+                            })
+                        elif source == "prayer":
+                            formatted = format_prayer_post(reference, raw_text)
+                        else:
+                            formatted = format_verse(reference, raw_text)
+                    except Exception as exc:
+                        log.warning(f"Falha ao formatar conteúdo completo: {exc}")
+                    if formatted:
+                        db.update_post_content(
+                            working_id,
+                            formatted.get("formatted_text") or original["formatted_text"],
+                            formatted.get("hashtags") or [],
+                            formatted.get("visual_prompt") or original.get("visual_prompt", ""),
+                            formatted.get("caption") or "",
+                            formatted.get("hook_title") or original.get("hook_title", ""),
+                        )
+
+                try:
+                    media = _regenerate_post_media(db, working_id, include_images=(path == "/api/actions/regenerate-full"))
+                except Exception as exc:
+                    log.error(f"Falha ao regenerar mídia do post #{working_id}: {exc}")
+                    self._send_json({"error": str(exc)}, status=500)
+                    return
+
+                self._send_json({
+                    "success": True,
+                    "post_id": working_id,
+                    "source_post_id": post_id,
+                    "created_draft": created_draft,
+                    "media_preserved_until_success": True,
+                    "media": media,
+                })
                 return
 
             if path == "/api/actions/media":

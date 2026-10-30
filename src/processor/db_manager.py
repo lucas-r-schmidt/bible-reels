@@ -248,6 +248,45 @@ class DBManager:
         )
         self.conn.commit()
 
+    def update_post_content(
+        self,
+        post_id: int,
+        formatted_text: str,
+        hashtags: list[str],
+        visual_prompt: str,
+        caption: str = "",
+        hook_title: str = "",
+    ) -> None:
+        self.conn.execute(
+            """UPDATE posts
+               SET formatted_text = ?, hashtags = ?, visual_prompt = ?,
+                   caption = ?, hook_title = ?
+               WHERE id = ?""",
+            (
+                formatted_text,
+                json.dumps(hashtags, ensure_ascii=False),
+                visual_prompt,
+                caption,
+                hook_title,
+                post_id,
+            ),
+        )
+        self.conn.commit()
+
+    def clone_post_draft(self, post_id: int) -> int | None:
+        row = self.conn.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
+        if not row:
+            return None
+        post = dict(row)
+        return self.insert_post(
+            verse_id=post["verse_id"],
+            formatted_text=post["formatted_text"],
+            hashtags=json.loads(post["hashtags"] or "[]"),
+            visual_prompt=post.get("visual_prompt", ""),
+            caption=post.get("caption", ""),
+            hook_title=post.get("hook_title", ""),
+        )
+
     def mark_post_published(self, post_id: int) -> None:
         self.conn.execute(
             "UPDATE posts SET status = 'published', published_at = ? WHERE id = ?",

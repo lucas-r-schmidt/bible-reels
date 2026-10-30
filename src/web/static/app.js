@@ -1546,11 +1546,20 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  const modalBtnRenderSingle = document.getElementById("modal-btn-render-single");
-  if (modalBtnRenderSingle) {
-    modalBtnRenderSingle.addEventListener("click", () => {
+  const modalBtnRegenerateVideo = document.getElementById("modal-btn-regenerate-video");
+  if (modalBtnRegenerateVideo) {
+    modalBtnRegenerateVideo.addEventListener("click", () => {
       if (!selectedPost) return;
-      triggerAction("/api/actions/media", { post_id: selectedPost.id, make_video: true }, modalBtnRenderSingle, `Renderização do post #${selectedPost.id} iniciada!`);
+      triggerAction("/api/actions/regenerate-video", { post_id: selectedPost.id }, modalBtnRegenerateVideo, `Vídeo e narração do post #${selectedPost.id} regerados!`);
+    });
+  }
+
+  const modalBtnRegenerateFull = document.getElementById("modal-btn-regenerate-full");
+  if (modalBtnRegenerateFull) {
+    modalBtnRegenerateFull.addEventListener("click", () => {
+      if (!selectedPost) return;
+      if (!confirm("Regenerar todo o conteúdo deste tema, incluindo texto, mídia, narração e vídeo?")) return;
+      triggerAction("/api/actions/regenerate-full", { post_id: selectedPost.id }, modalBtnRegenerateFull, `Conteúdo completo do post #${selectedPost.id} regenerado!`).then(() => loadPosts());
     });
   }
 

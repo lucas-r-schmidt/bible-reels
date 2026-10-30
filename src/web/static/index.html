@@ -612,9 +612,14 @@
     </div>
 
     <div class="drawer-footer">
-      <button class="btn btn-ghost" id="modal-btn-render-single">
-        <i data-lucide="video"></i> Renderizar Vídeo
-      </button>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn btn-ghost" id="modal-btn-regenerate-video">
+          <i data-lucide="refresh-cw"></i> Regerar vídeo e narração
+        </button>
+        <button class="btn btn-ghost" id="modal-btn-regenerate-full">
+          <i data-lucide="sparkles"></i> Regenerar conteúdo completo
+        </button>
+      </div>
       <div class="drawer-footer-right">
         <button class="btn btn-secondary" id="modal-btn-schedule">
           <i data-lucide="calendar-clock"></i> Agendar no Buffer
