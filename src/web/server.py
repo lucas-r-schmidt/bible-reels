@@ -1349,6 +1349,22 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                     self._send_json({"success": False, "error": f"Falha ao enviar post #{post_id} via {target_name}. Verifique os logs."}, status=500)
                 return
 
+            if path == "/api/actions/delete-post":
+                post_id = data.get("post_id")
+                if not post_id:
+                    self._send_json({"error": "post_id obrigatório"}, status=400)
+                    return
+                try:
+                    deleted = db.delete_post_draft(int(post_id))
+                except ValueError as exc:
+                    self._send_json({"error": str(exc)}, status=409)
+                    return
+                if deleted:
+                    self._send_json({"success": True, "message": f"Post #{int(post_id)} excluído permanentemente!", "post_id": int(post_id)})
+                else:
+                    self._send_json({"error": "Post não encontrado"}, status=404)
+                return
+
             if path == "/api/actions/queue-remove":
                 queue_id = data.get("queue_id")
                 clear_all = bool(data.get("clear_all", False))

@@ -248,6 +248,17 @@ class DBManager:
         )
         self.conn.commit()
 
+    def delete_post_draft(self, post_id: int) -> bool:
+        row = self.conn.execute("SELECT status FROM posts WHERE id = ?", (post_id,)).fetchone()
+        if not row:
+            return False
+        if row["status"] == "published":
+            raise ValueError("Posts publicados não podem ser excluídos pelo painel")
+        with self.conn:
+            self.conn.execute("DELETE FROM queue WHERE post_id = ?", (post_id,))
+            self.conn.execute("DELETE FROM posts WHERE id = ?", (post_id,))
+        return True
+
     def update_post_content(
         self,
         post_id: int,

@@ -1546,6 +1546,23 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  const modalBtnDeletePost = document.getElementById("modal-btn-delete-post");
+  if (modalBtnDeletePost) {
+    modalBtnDeletePost.addEventListener("click", () => {
+      if (!selectedPost) return;
+      if (selectedPost.status === "published") {
+        showToast("Posts publicados não podem ser excluídos.", "error");
+        return;
+      }
+      if (!confirm(`Excluir permanentemente o post #${selectedPost.id}?\n\nEsta ação remove o post e itens pendentes relacionados da fila.`)) return;
+      const postId = selectedPost.id;
+      triggerAction("/api/actions/delete-post", { post_id: postId }, modalBtnDeletePost, `Post #${postId} excluído!`).then(() => {
+        closeDrawer();
+        loadPosts();
+      });
+    });
+  }
+
   const modalBtnRegenerateVideo = document.getElementById("modal-btn-regenerate-video");
   if (modalBtnRegenerateVideo) {
     modalBtnRegenerateVideo.addEventListener("click", () => {
