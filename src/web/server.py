@@ -816,7 +816,7 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                 try:
                     scenes_dir = slides[0].parent / "scenes" if slides else None
                     v_scenes = [scenes_dir / f"scene_{i+1:02d}.png" for i in range(len(slides))] if (scenes_dir and scenes_dir.is_dir()) else slides
-                    vid = generate_video_from_image(img_path, slides=v_scenes, narration_text=saint_narration, theme="saint")
+                    vid = generate_video_from_image(img_path, slides=v_scenes, narration_text=saint_narration, theme="saint", content_type="saint")
                     if vid:
                         vid_path_str = str(vid)
                 except Exception as e_vid:

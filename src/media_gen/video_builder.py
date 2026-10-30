@@ -389,6 +389,7 @@ def generate_video_from_image(
     slides: list[Path] | None = None,
     theme: str = "",
     subtitles_path: Path | None = None,
+    content_type: str | None = None,
 ) -> Path | None:
     """
     Renderiza vídeo dinâmico 9:16 (1080x1920) com efeito Ken Burns e áudio mixado.
@@ -396,9 +397,12 @@ def generate_video_from_image(
     gera um vídeo sequencial dinâmico que alterna as imagens e frases automaticamente!
     Garante que se narração foi solicitada, o vídeo não será publicado sem voz.
     """
-    from config.settings import VIDEO_DURATION_VERSE, VIDEO_DURATION_SAINT
-    default_dur = VIDEO_DURATION_SAINT if (slides and len(slides) > 2) else VIDEO_DURATION_VERSE
-    dur = duration or default_dur
+    from config.settings import VIDEO_DURATION_VERSE
+    from src.media_gen.duration_policy import resolve_video_duration
+
+    normalized_type = content_type or theme
+    default_dur = duration or VIDEO_DURATION_VERSE
+    dur = resolve_video_duration(normalized_type, 0, duration or default_dur)
     # Nome previsível do arquivo de saída
     if output_path:
         out_file = Path(output_path)
@@ -443,13 +447,7 @@ def generate_video_from_image(
         # Ajusta duração baseado na fala + 1s de respiro musical final (evita vácuo de silêncio)
         tts_dur = _get_audio_duration(tts_audio)
         if tts_dur > 0:
-            computed_dur = max(6, int(round(tts_dur + 1.0)))
-            is_saint_or_multi = bool((slides and len(slides) > 2) or theme == "saint")
-            if is_saint_or_multi:
-                # Garante piso de 62s para monetização TikTok (>60s) e retenção devocional
-                dur = max(62, computed_dur)
-            else:
-                dur = max(duration, computed_dur) if duration else computed_dur
+            dur = resolve_video_duration(normalized_type, tts_dur, duration)
 
     # 2. Seleciona trilha ambiente de fundo contextualmente
     bg_music = audio_path

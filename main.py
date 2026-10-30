@@ -216,8 +216,10 @@ def step_media(db: DBManager, limit: int = 5, make_video: bool = True, post_id: 
         v_row = cur.fetchone()
         ref = v_row["reference"] if v_row else "Reflexão"
         source = v_row["source"] if v_row else ""
+        content_type = source or "verse"
 
         if source == "saint" or (source not in ("novena", "prayer", "psalm") and any(k in ref.lower() for k in ("santo", "santa", "são", "sao", "senhora"))):
+            content_type = "saint"
             from src.media_gen.carousel_builder import generate_saint_carousel, build_saint_narration_text
             target_date = None
             date_match = re.search(r"\((\d{1,2})/(\d{1,2})\)", ref)
@@ -263,6 +265,7 @@ def step_media(db: DBManager, limit: int = 5, make_video: bool = True, post_id: 
             slides_for_video = saint_vscenes
             narration_text = build_saint_narration_text(clean_saint_name, title_hook, story_text, prayer_text)
         elif source == "gospel" or "evangelho" in ref.lower():
+            content_type = "gospel"
             from src.media_gen.carousel_builder import generate_gospel_carousel
             from src.media_gen.tts import build_gospel_narration_text
 
@@ -306,6 +309,7 @@ def step_media(db: DBManager, limit: int = 5, make_video: bool = True, post_id: 
                 concise=True
             )
         elif source == "novena" or "novena" in ref.lower():
+            content_type = "novena"
             from src.media_gen.carousel_builder import generate_prayer_carousel
             from src.media_gen.tts import build_novena_narration_text
 
@@ -407,7 +411,7 @@ def step_media(db: DBManager, limit: int = 5, make_video: bool = True, post_id: 
 
         vid_path_str = ""
         if make_video:
-            vid_path = generate_video_from_image(vid_target, slides=slides_for_video, narration_text=narration_text)
+            vid_path = generate_video_from_image(vid_target, slides=slides_for_video, narration_text=narration_text, content_type=content_type)
             if vid_path:
                 vid_path_str = str(vid_path)
 
@@ -651,7 +655,7 @@ def run_saint_pipeline(
         )
         if make_video:
             try:
-                vid_path = generate_video_from_image(saint_vscenes[0], slides=saint_vscenes, narration_text=saint_narration, theme="saint")
+                vid_path = generate_video_from_image(saint_vscenes[0], slides=saint_vscenes, narration_text=saint_narration, theme="saint", content_type="saint")
                 if vid_path:
                     vid_path_str = str(vid_path)
             except Exception as e_vid:
