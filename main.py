@@ -22,6 +22,10 @@ from datetime import date, datetime, timedelta, time as dtime
 from pathlib import Path
 
 from config.settings import DB_PATH, POSTS_PER_RUN, DEFAULT_PUBLISHER, OUTPUT_IMAGES, OUTPUT_VIDEOS
+from config.posting_schedule import (
+    MORNING, SAINT_CAROUSEL, GOSPEL_CAROUSEL, MIDDAY, NOVENA,
+    EVENING, EVENING_CAROUSEL, SAINT_VIDEO, ANALYTICS, DAILY_JOBS,
+)
 from src.collector.bible_api import collect_verses
 from src.collector.local_quotes import collect_quotes, collect_classic_prayers
 from src.collector.liturgy import collect_gospel_of_day, collect_psalm_of_day
@@ -468,54 +472,13 @@ def step_dispatch(db: DBManager, platform: str | None = None, limit: int = 10, m
 
         has_media = _has_file(post.get("video_path"), OUTPUT_VIDEOS) or _has_file(post.get("image_path"), OUTPUT_IMAGES)
 
-        # Se não tiver mídia gerada ainda, renderiza agora antes de disparar
         if not has_media:
-            log.info(f"Post #{post['id']} sem mídia em disco. Gerando agora...")
-            cur_v = db.conn.execute("SELECT reference, source FROM verses WHERE id = ?", (post["verse_id"],))
-            v_row = cur_v.fetchone()
-            ref = v_row["reference"] if v_row else "Reflexão"
-            source = v_row["source"] if v_row else ""
-
-            if source == "saint" or (source not in ("novena", "prayer", "psalm") and any(k in ref.lower() for k in ("santo", "santa", "são", "sao", "senhora"))):
-                from src.media_gen.carousel_builder import generate_saint_carousel, build_saint_narration_text
-                saint_meta = get_saint_for_date()
-                title_hook = saint_meta.get("quote", "") or post["formatted_text"].split("\n\n—")[0]
-                story_text = saint_meta.get("history", "") or post["formatted_text"]
-                prayer_text = saint_meta.get("prayer", "")
-                slides = generate_saint_carousel(
-                    post_id=post["id"],
-                    saint_name=ref,
-                    title_hook=title_hook,
-                    story_text=story_text,
-                    prayer_text=prayer_text
-                )
-                img_path = slides[0] if slides else generate_post_image(
-                    post_id=post["id"],
-                    text=post["formatted_text"],
-                    reference=ref,
-                    badge_text="MENSAGEM DO SANTO DO DIA",
-                    bg_image_path=get_saint_image(ref)
-                )
-                vid_target = img_path
-                slides_for_vid = slides
-                narration_text = build_saint_narration_text(ref, title_hook, story_text, prayer_text)
-            else:
-                from src.media_gen.image_builder import generate_verse_scenes
-                verse_scenes = generate_verse_scenes(post["id"], ref, post["formatted_text"], post.get("visual_prompt", ""))
-                img_path = verse_scenes[0] if verse_scenes else generate_post_image(post_id=post["id"], text=post["formatted_text"], reference=ref)
-                vid_target = verse_scenes[0] if verse_scenes else img_path
-                slides_for_vid = verse_scenes
-                from src.media_gen.tts import build_verse_narration_text
-                narration_text = build_verse_narration_text(post["formatted_text"], reference=ref)
-
-            vid_path_str = ""
-            if make_video:
-                vid_path = generate_video_from_image(vid_target, slides=slides_for_vid, narration_text=narration_text)
-                if vid_path:
-                    vid_path_str = str(vid_path)
-            db.update_post_media(post["id"], str(img_path), vid_path_str)
-            post["image_path"] = str(img_path)
-            post["video_path"] = vid_path_str
+            log.error(
+                "Post #%s não possui mídia disponível. Envio cancelado até gerar a mídia.",
+                post.get("id")
+            )
+            db.mark_queue_failed(q["id"])
+            continue
 
         q_plat = (q.get("platform") or DEFAULT_PUBLISHER).lower()
 
@@ -980,19 +943,19 @@ def check_and_catchup_missed_post(
     now = datetime.now().astimezone()
     today = now.date()
 
-    morning_start = datetime.combine(today, dtime(6, 30, 0)).astimezone()
+    morning_start = datetime.combine(today, dtime.fromisoformat(MORNING)).astimezone()
     morning_end = datetime.combine(today, dtime(11, 59, 59)).astimezone()
 
-    afternoon_start = datetime.combine(today, dtime(12, 0, 0)).astimezone()
+    afternoon_start = datetime.combine(today, dtime.fromisoformat(MIDDAY)).astimezone()
     afternoon_end = datetime.combine(today, dtime(14, 59, 59)).astimezone()
 
-    novena_start = datetime.combine(today, dtime(15, 0, 0)).astimezone()
+    novena_start = datetime.combine(today, dtime.fromisoformat(NOVENA)).astimezone()
     novena_end = datetime.combine(today, dtime(17, 59, 59)).astimezone()
 
-    evening_start = datetime.combine(today, dtime(18, 0, 0)).astimezone()
+    evening_start = datetime.combine(today, dtime.fromisoformat(EVENING)).astimezone()
     evening_end = datetime.combine(today, dtime(20, 29, 59)).astimezone()
 
-    saint_eve_start = datetime.combine(today, dtime(20, 30, 0)).astimezone()
+    saint_eve_start = datetime.combine(today, dtime.fromisoformat(SAINT_VIDEO)).astimezone()
     saint_eve_end = datetime.combine(today, dtime(23, 59, 59)).astimezone()
 
     log.info(f"[SELF-HEALING] Verificando se posts do dia foram entregues ({now.strftime('%d/%m/%Y %H:%M:%S')})...")
@@ -1225,24 +1188,24 @@ def main() -> None:
                 log.info("🌅 Matinal Oficial: Evangelho do Dia (Liturgia Diária CNBB)")
                 run_pipeline(source="gospel", count=daily_count, make_video=make_video_eff, publisher=args.publisher, dispatch_limit=daily_count, theme="morning")
 
-        schedule.every().day.at("06:30").do(_morning_job)
+        schedule.every().day.at(MORNING).do(_morning_job)
 
         # Agendamento das 08:30 (Carrossel 4:5 no Feed do Instagram: Santo do Dia)
         def _morning_saint_carousel_job():
             log.info("🕊️ [08:30] Publicando Carrossel 4:5 do Santo do Dia no feed do Instagram...")
             run_carousel_pipeline(source="saint", publisher=args.publisher)
 
-        schedule.every().day.at("08:30").do(_morning_saint_carousel_job)
+        schedule.every().day.at(SAINT_CAROUSEL).do(_morning_saint_carousel_job)
 
         # Agendamento das 10:00 (Carrossel 4:5 no Feed do Instagram: Aprofundamento do Evangelho)
         def _morning_gospel_carousel_job():
             log.info("📖 [10:00] Publicando Carrossel 4:5 do Evangelho do Dia no feed do Instagram...")
             run_carousel_pipeline(source="gospel", publisher=args.publisher)
 
-        schedule.every().day.at("10:00").do(_morning_gospel_carousel_job)
+        schedule.every().day.at(GOSPEL_CAROUSEL).do(_morning_gospel_carousel_job)
 
         # Agendamento das 12:00 (Meio-dia: Palavra de Fé & Sabedoria Bíblica)
-        schedule.every().day.at("12:00").do(
+        schedule.every().day.at(MIDDAY).do(
             run_pipeline,
             source="bible",
             count=daily_count,
@@ -1261,7 +1224,7 @@ def main() -> None:
             else:
                 log.info("🕊️ [15:00] Nenhuma novena litúrgica ativa para hoje.")
 
-        schedule.every().day.at("15:00").do(_novena_job)
+        schedule.every().day.at(NOVENA).do(_novena_job)
 
         # Agendamento das 18:00 (Noturno: Oração Clássica / Salmo de Proteção e Paz)
         def _evening_prayer_job():
@@ -1273,7 +1236,7 @@ def main() -> None:
                 log.info("🌙 Noturno Oficial: Oração Clássica de Proteção (Salmo 91, São Bento, São Miguel)")
                 run_prayer_pipeline(source="prayer", publisher=args.publisher, make_video=make_video_eff, dispatch=True)
 
-        schedule.every().day.at("18:00").do(_evening_prayer_job)
+        schedule.every().day.at(EVENING).do(_evening_prayer_job)
 
         # Agendamento das 19:15 (Carrossel no Feed: Oração / Salmo independente das 18h)
         def _evening_carousel_job():
@@ -1283,7 +1246,7 @@ def main() -> None:
             log.info(f"🙏 [19:15] Publicando Carrossel independente ({alt_source}) no feed...")
             run_carousel_pipeline(source=alt_source, publisher=args.publisher)
 
-        schedule.every().day.at("19:15").do(_evening_carousel_job)
+        schedule.every().day.at(EVENING_CAROUSEL).do(_evening_carousel_job)
 
         # Agendamento das 20:30 (Véspera: Santo do Dia seguinte)
         def _saint_eve_job():
@@ -1296,7 +1259,7 @@ def main() -> None:
                 dispatch=True
             )
 
-        schedule.every().day.at("20:30").do(_saint_eve_job)
+        schedule.every().day.at(SAINT_VIDEO).do(_saint_eve_job)
 
         # Agendamento das 23:15 (Loop de Métricas & Analytics Noturno)
         def _analytics_job():
@@ -1308,7 +1271,7 @@ def main() -> None:
             except Exception as e_an:
                 log.warning(f"Falha na sincronização periódica de analytics: {e_an}")
 
-        schedule.every().day.at("23:15").do(_analytics_job)
+        schedule.every().day.at(ANALYTICS).do(_analytics_job)
 
         # Executa verificação inicial de auto-recuperação (Catch-up)
         check_and_catchup_missed_post(

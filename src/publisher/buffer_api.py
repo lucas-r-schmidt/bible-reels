@@ -276,6 +276,7 @@ def publish_via_buffer(
     """
     _load_env()
     from src.publisher.webhook import resolve_public_media_url
+    from src.media_gen.media_policy import prefers_carousel
 
     if not post_data.get("reference") and post_data.get("verse_id"):
         try:
@@ -288,6 +289,9 @@ def publish_via_buffer(
                     post_data["verse_source"] = r[1]
         except Exception:
             pass
+
+    if not prefer_carousel and post_data.get("verse_source"):
+        prefer_carousel = prefers_carousel(post_data["verse_source"])
 
     # 1. Identifica todas as mídias disponíveis para o post
     video_path: Path | None = None
