@@ -943,7 +943,7 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                     if post_row:
                         p_dict = dict(post_row)
                         p_dict["reference"] = ref_label
-                        scheduled_ok = publish_via_buffer(p_dict, due_at=due_at_iso)
+                        scheduled_ok = publish_via_buffer(p_dict, due_at=due_at_iso, prefer_carousel=(media_format == "carousel"))
                         if scheduled_ok:
                             db.mark_post_published(post_id)
                             db.conn.execute("UPDATE queue SET status = 'sent' WHERE post_id = ?", (post_id,))
@@ -1295,12 +1295,14 @@ class BibleReelsHandler(SimpleHTTPRequestHandler):
                 from dotenv import load_dotenv
                 load_dotenv(ROOT_DIR / ".env", override=True)
                 pub = (data.get("publisher") or os.getenv("DEFAULT_PUBLISHER", DEFAULT_PUBLISHER)).lower()
+                prefer_carousel = bool(data.get("prefer_carousel", False))
                 cur = db.conn.execute("SELECT * FROM posts WHERE id = ?", (post_id,))
                 row = cur.fetchone()
                 if not row:
                     self._send_json({"success": False, "error": "Post não encontrado"}, status=404)
                     return
                 post = dict(row)
+                post["prefer_carousel"] = prefer_carousel
 
                 if pub in ("all", "multi", "todos"):
                     # 1. Instagram Direto

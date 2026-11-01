@@ -84,7 +84,7 @@ def get_instagram_client() -> Any:
     return None
 
 
-def publish_via_instagram_direct(post_data: dict[str, Any]) -> bool:
+def publish_via_instagram_direct(post_data: dict[str, Any], prefer_carousel: bool = False) -> bool:
     """Publica Reel diretamente no Instagram sem passar por Meta ou Buffer em alta velocidade."""
     cl = get_instagram_client()
     if not cl:
@@ -136,24 +136,18 @@ def publish_via_instagram_direct(post_data: dict[str, Any]) -> bool:
         caption = f"{post_data.get('formatted_text', '')}\n\n{tags}".strip()
     is_video = media_to_send and media_to_send.suffix.lower() == ".mp4"
 
-    # Regra: Carrossel é EXCLUSIVO para Santo do Dia no Instagram
-    ref_lower = (post_data.get("reference") or "").lower()
-    is_saint = (
-        post_data.get("verse_source") == "saint"
-        or any(k in ref_lower for k in ("santo", "santa", "são", "sao", "senhora", "nossa senhora"))
-        or "carousel_" in str(image_file or "").lower()
-    )
+    explicit_carousel = bool(prefer_carousel or post_data.get("prefer_carousel"))
 
     try:
         log.info(f"Enviando post #{post_data.get('id')} para o Instagram...")
-        if is_saint and carousel_slides:
+        if (explicit_carousel and carousel_slides) or (not is_video and carousel_slides):
             is_v_album = carousel_slides[0].suffix.lower() == ".mp4"
             tipo_album = "vídeos com áudio" if is_v_album else "fotos"
-            log.info(f"Santo do Dia: enviando Carrossel ({tipo_album}) com {len(carousel_slides)} lâminas para o feed do Instagram...")
+            log.info(f"Instagram: enviando Carrossel ({tipo_album}) com {len(carousel_slides)} lâminas para o feed...")
             media = cl.album_upload(carousel_slides, caption=caption)
         elif is_video:
-            # Demais mensagens (Bíblia): SEMPRE Reel de vídeo vertical 1080x1920
-            log.info(f"Mensagem Bíblica: enviando Reel de vídeo MP4...")
+            # Vídeo vertical 1080x1920 (Reel)
+            log.info(f"Instagram: enviando Reel de vídeo MP4 vertical...")
             media = cl.clip_upload(media_to_send, caption=caption, thumbnail=thumb_path)
         else:
             media = cl.photo_upload(media_to_send, caption=caption)

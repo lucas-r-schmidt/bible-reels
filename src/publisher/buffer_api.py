@@ -290,8 +290,8 @@ def publish_via_buffer(
         except Exception:
             pass
 
-    if not prefer_carousel and post_data.get("verse_source"):
-        prefer_carousel = prefers_carousel(post_data["verse_source"])
+    explicit_carousel = bool(prefer_carousel or post_data.get("prefer_carousel"))
+    prefer_carousel = explicit_carousel
 
     # 1. Identifica todas as mídias disponíveis para o post
     video_path: Path | None = None
@@ -341,7 +341,7 @@ def publish_via_buffer(
 
     # 1.1 Tenta enviar prioritariamente via Buffer Gateway (vídeos, imagens ou carrosséis multi-imagens)
     if os.getenv("BUFFER_GATEWAY_URL"):
-        is_carousel_job = bool(prefer_carousel or post_data.get("prefer_carousel") or len(carousel_slides) > 1)
+        is_carousel_job = bool((prefer_carousel and len(carousel_slides) > 1) or (not video_path and len(carousel_slides) > 1))
         media_for_gw = None if is_carousel_job else (video_path or single_image_path)
         if media_for_gw or (is_carousel_job and carousel_slides):
             gw_res = _publish_via_gateway(
@@ -494,7 +494,7 @@ def publish_via_buffer(
         # YouTube e TikTok saem às 20:30 da véspera (imediato)
         # Instagram Reel sai às 06:00 da manhã do próprio dia do Santo
         ch_due_at = due_at
-        if is_saint and not due_at:
+        if is_saint and is_vid and not due_at:
             if service == "instagram":
                 target_d = _resolve_saint_target_date(post_data.get("reference") or "")
                 try:

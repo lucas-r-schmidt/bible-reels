@@ -664,7 +664,7 @@ def run_saint_pipeline(
         db.update_post_media(post_id, str(img_path), vid_path_str)
         target_platform = publisher or DEFAULT_PUBLISHER
         db.enqueue(post_id, target_platform)
-        log.info(f"Post do Santo do Dia pronto na fila! (Post #{post_id} | Instagram: Carrossel | TikTok e YouTube: Vídeo MP4)")
+        log.info(f"Post do Santo do Dia pronto na fila! (Post #{post_id} | Vídeo MP4 multi-cena 9:16 para Reels, TikTok e YouTube)")
 
         if dispatch:
             step_dispatch(db, platform=target_platform, limit=1, make_video=make_video, post_id=post_id)
