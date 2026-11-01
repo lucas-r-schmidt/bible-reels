@@ -20,12 +20,34 @@ from src.utils.logger import get_logger
 log = get_logger(__name__)
 
 AUDIO_THEME_MAP: dict[str, list[str]] = {
-    "saint": ["canto_gregoriano.mp3", "cordas_bach_air.mp3", "piano_nocturne.mp3", "violoncelo_devocional_bach.mp3"],
-    "psalm": ["harpa_flauta_sagrada.mp3", "piano_gymnopedie.mp3", "cordas_bach_air.mp3", "violoncelo_devocional_bach.mp3"],
-    "prayer": ["cordas_bach_air.mp3", "harpa_flauta_sagrada.mp3", "piano_moonlight.mp3", "background_peaceful.mp3"],
-    "gospel": ["orquestral_canon_pachelbel.mp3", "piano_clair_de_lune.mp3", "cordas_bach_air.mp3", "background_peaceful.mp3"],
-    "faith": ["orquestral_canon_pachelbel.mp3", "piano_clair_de_lune.mp3", "cordas_bach_air.mp3", "background_peaceful.mp3"],
-    "novena": ["canto_gregoriano.mp3", "cordas_bach_air.mp3", "harpa_flauta_sagrada.mp3"],
+    "saint": [
+        "canto_gregoriano.mp3", "cordas_bach_air.mp3", "piano_nocturne.mp3",
+        "violoncelo_devocional_bach.mp3", "worship_acaso_nao_sabeis.mp3", "worship_ninguem_te_ama.mp3"
+    ],
+    "psalm": [
+        "harpa_flauta_sagrada.mp3", "piano_gymnopedie.mp3", "cordas_bach_air.mp3",
+        "violoncelo_devocional_bach.mp3", "worship_bondade_de_deus.mp3"
+    ],
+    "prayer": [
+        "cordas_bach_air.mp3", "harpa_flauta_sagrada.mp3", "piano_moonlight.mp3",
+        "background_peaceful.mp3", "worship_oceans.mp3", "worship_bondade_de_deus.mp3"
+    ],
+    "gospel": [
+        "orquestral_canon_pachelbel.mp3", "piano_clair_de_lune.mp3", "cordas_bach_air.mp3",
+        "background_peaceful.mp3", "worship_bondade_de_deus.mp3", "worship_ninguem_te_ama.mp3"
+    ],
+    "faith": [
+        "orquestral_canon_pachelbel.mp3", "piano_clair_de_lune.mp3", "cordas_bach_air.mp3",
+        "background_peaceful.mp3", "worship_oceans.mp3"
+    ],
+    "novena": [
+        "canto_gregoriano.mp3", "cordas_bach_air.mp3", "harpa_flauta_sagrada.mp3",
+        "worship_acaso_nao_sabeis.mp3", "worship_ninguem_te_ama.mp3"
+    ],
+    "worship": [
+        "worship_bondade_de_deus.mp3", "worship_acaso_nao_sabeis.mp3",
+        "worship_oceans.mp3", "worship_ninguem_te_ama.mp3"
+    ]
 }
 
 
@@ -71,6 +93,22 @@ def get_available_audio_tracks() -> list[Path]:
         if p.is_file() and p.suffix.lower() in valid_exts and not p.name.startswith("temp_") and not p.name.startswith("teste_")
     ]
 
+
+
+
+def _build_audio_ducking_filter(vocal_idx: int, bg_idx: int, fade_start: float) -> str:
+    """
+    Constrói filtro de mixagem de áudio profissional:
+    - Leve ambiência acústica de santuário na voz (aecho suave)
+    - Sidechain Ducking: música a 26% nas pausas/intro, reduz suavemente para 10% durante a fala
+    - Normalização EBU R128 (-14 LUFS) padrão Reels/Shorts/TikTok
+    """
+    return (
+        f"[{vocal_idx}:a]aecho=0.8:0.88:35:0.10,asplit=2[v_lead][v_sc];"
+        f"[{bg_idx}:a]volume=0.26,afade=t=out:st={fade_start:.1f}:d=2[bg_raw];"
+        f"[bg_raw][v_sc]sidechaincompress=threshold=0.08:ratio=4:attack=50:release=450[bg_ducked];"
+        f"[v_lead][bg_ducked]amix=inputs=2:duration=longest:dropout_transition=2,loudnorm=I=-14:TP=-1.5:LRA=11[aout]"
+    )
 
 def _get_audio_duration(path: Path) -> float:
     """Calcula duração exata de arquivo de áudio via ffprobe."""
@@ -128,6 +166,7 @@ def _build_video_ffmpeg(
 
     try:
         if tts_audio and Path(tts_audio).is_file() and bg_music and Path(bg_music).is_file():
+            audio_filter = _build_audio_ducking_filter(vocal_idx=1, bg_idx=2, fade_start=fade_start)
             cmd = [
                 "ffmpeg", "-y", "-loop", "1",
                 "-i", str(image_path),
@@ -135,9 +174,7 @@ def _build_video_ffmpeg(
                 "-i", str(bg_music),
                 "-filter_complex",
                 f"[0:v]{video_filter}[vout];"
-                f"[1:a]volume=1.0[vocal];"
-                f"[2:a]volume=0.12,afade=t=out:st={fade_start}:d=2[bg];"
-                f"[vocal][bg]amix=inputs=2:duration=longest:dropout_transition=2[aout]",
+                f"{audio_filter}",
                 "-map", "[vout]",
                 "-map", "[aout]",
                 "-c:v", "libx264", "-pix_fmt", "yuv420p",
@@ -259,11 +296,8 @@ def _build_multislide_video_ffmpeg(
     audio_idx_bg = (n + 1 if has_tts else n) if has_bg else None
 
     if has_tts and has_bg:
-        filters.append(
-            f"[{audio_idx_tts}:a]volume=1.0[vocal];"
-            f"[{audio_idx_bg}:a]volume=0.12,afade=t=out:st={fade_start}:d=2[bg];"
-            f"[vocal][bg]amix=inputs=2:duration=longest:dropout_transition=2[aout]"
-        )
+        duck_filter = _build_audio_ducking_filter(vocal_idx=audio_idx_tts, bg_idx=audio_idx_bg, fade_start=fade_start)
+        filters.append(duck_filter)
         map_audio = "[aout]"
     elif has_tts:
         filters.append(f"[{audio_idx_tts}:a]volume=1.0[aout]")
@@ -431,8 +465,12 @@ def generate_video_from_image(
         tts_temp = OUTPUT_VIDEOS / f"{out_file.stem}_narration.mp3"
         ass_temp = OUTPUT_VIDEOS / f"{out_file.stem}_subtitles.ass"
 
-        from src.media_gen.tts import generate_narration_with_subtitles
-        tts_audio, ass_generated = generate_narration_with_subtitles(text_to_narrate, tts_temp, ass_temp)
+        from src.media_gen.tts import generate_narration_with_subtitles, select_voice_profile
+        v_name, v_rate, v_pitch = select_voice_profile(source=normalized_type, reference=str(image_path), text=text_to_narrate)
+        log.info(f"Perfil de voz selecionado: {v_name} (rate={v_rate}, pitch={v_pitch}) para tema '{normalized_type}'")
+        tts_audio, ass_generated = generate_narration_with_subtitles(
+            text_to_narrate, tts_temp, ass_temp, voice=v_name, rate=v_rate, pitch=v_pitch
+        )
         if ass_generated and not ass_subtitles:
             ass_subtitles = ass_generated
 

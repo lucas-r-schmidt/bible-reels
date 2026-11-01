@@ -300,8 +300,18 @@ def step_media(db: DBManager, limit: int = 5, make_video: bool = True, post_id: 
                 hook_title=hook_title or homily,
                 bg_image_path=scenes_dir / "scene_01.png" if (scenes_dir and (scenes_dir / "scene_01.png").is_file()) else None
             )
-            vid_target = video_frame
-            slides_for_video = [video_frame]
+            from src.media_gen.image_builder import generate_multi_scene_video_frames
+            valid_bg_scenes = [p for p in v_scenes if p and Path(p).is_file()]
+            multi_video_frames = generate_multi_scene_video_frames(
+                post_id=post["id"],
+                reference=ref,
+                badge_text="EVANGELHO DO DIA",
+                hook_title=hook_title or homily,
+                bg_images=valid_bg_scenes or ([video_frame] if video_frame else []),
+                output_dir=(scenes_dir.parent / "video_scenes") if scenes_dir else None
+            )
+            vid_target = multi_video_frames[0] if multi_video_frames else video_frame
+            slides_for_video = multi_video_frames or [video_frame]
             narration_text = build_gospel_narration_text(
                 reference=ref,
                 text=post["formatted_text"],
@@ -333,8 +343,18 @@ def step_media(db: DBManager, limit: int = 5, make_video: bool = True, post_id: 
                 hook_title=hook_title,
                 bg_image_path=scenes_dir / "scene_01.png" if (scenes_dir and (scenes_dir / "scene_01.png").is_file()) else None
             )
-            vid_target = video_frame
-            slides_for_video = [video_frame]
+            from src.media_gen.image_builder import generate_multi_scene_video_frames
+            valid_bg_scenes = [p for p in v_scenes if p and Path(p).is_file()]
+            multi_video_frames = generate_multi_scene_video_frames(
+                post_id=post["id"],
+                reference=ref,
+                badge_text="NOVENA",
+                hook_title=hook_title,
+                bg_images=valid_bg_scenes or ([video_frame] if video_frame else []),
+                output_dir=(scenes_dir.parent / "video_scenes") if scenes_dir else None
+            )
+            vid_target = multi_video_frames[0] if multi_video_frames else video_frame
+            slides_for_video = multi_video_frames or [video_frame]
             narration_text = build_novena_narration_text(
                 reference=ref,
                 text=post["formatted_text"],
@@ -365,8 +385,18 @@ def step_media(db: DBManager, limit: int = 5, make_video: bool = True, post_id: 
                 hook_title=hook_title,
                 bg_image_path=scenes_dir / "scene_01.png" if (scenes_dir and (scenes_dir / "scene_01.png").is_file()) else None
             )
-            vid_target = video_frame
-            slides_for_video = [video_frame]
+            from src.media_gen.image_builder import generate_multi_scene_video_frames
+            valid_bg_scenes = [p for p in v_scenes if p and Path(p).is_file()]
+            multi_video_frames = generate_multi_scene_video_frames(
+                post_id=post["id"],
+                reference=ref,
+                badge_text="ORAÇÃO & SALMO",
+                hook_title=hook_title,
+                bg_images=valid_bg_scenes or ([video_frame] if video_frame else []),
+                output_dir=(scenes_dir.parent / "video_scenes") if scenes_dir else None
+            )
+            vid_target = multi_video_frames[0] if multi_video_frames else video_frame
+            slides_for_video = multi_video_frames or [video_frame]
             narration_text = build_prayer_narration_text(
                 reference=ref,
                 text=post["formatted_text"],
@@ -400,8 +430,17 @@ def step_media(db: DBManager, limit: int = 5, make_video: bool = True, post_id: 
                 hook_title=hook_title,
                 bg_image_path=bg_img
             )
-            vid_target = video_frame
-            slides_for_video = [video_frame]
+            from src.media_gen.image_builder import generate_multi_scene_video_frames
+            valid_verse_scenes = [p for p in (verse_scenes or []) if p and Path(p).is_file()]
+            multi_video_frames = generate_multi_scene_video_frames(
+                post_id=post["id"],
+                reference=ref,
+                badge_text="ORAÇÃO DA COMUNIDADE" if source == "community" else "VERSÍCULO DO DIA",
+                hook_title=hook_title,
+                bg_images=valid_verse_scenes or ([video_frame] if video_frame else [])
+            )
+            vid_target = multi_video_frames[0] if multi_video_frames else video_frame
+            slides_for_video = multi_video_frames or [video_frame]
             from src.media_gen.tts import build_verse_narration_text
             narration_text = build_verse_narration_text(
                 post["formatted_text"],

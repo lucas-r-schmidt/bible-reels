@@ -989,6 +989,19 @@ def get_saint_images(saint_name: str = "", count: int = 5, target_date: date | N
                 if f not in images:
                     images.append(f)
 
+        # Fallback de enriquecimento com IA / Arte Sacra para garantir sempre o total de imagens
+        if len(images) < count:
+            from src.collector.backgrounds import get_thematic_background
+            needed = count - len(images)
+            for fill_idx in range(1, needed + 1):
+                sacred_prompt = (
+                    f"Sacred classic Catholic oil painting of {clean_name}, glorious celestial light, "
+                    f"baroque chiaroscuro style, golden halo, reverent peaceful altar ambiance, scene {fill_idx}"
+                )
+                ai_img = get_thematic_background(sacred_prompt, reference=f"{slug}_ai_{fill_idx}")
+                if ai_img and ai_img.is_file() and ai_img not in images:
+                    images.append(ai_img)
+
     # 2. Se e somente se o nome não for informado, usa correspondência por data MM-DD
     if not images and target_date:
         date_key = f"{target_date.month:02d}-{target_date.day:02d}"

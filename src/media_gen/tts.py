@@ -19,6 +19,33 @@ log = get_logger(__name__)
 DEFAULT_VOICE = "pt-BR-AntonioNeural"
 
 
+def select_voice_profile(source: str = "", reference: str = "", text: str = "") -> tuple[str, str, str]:
+    """
+    Retorna o perfil ideal de locução neural (voz, rate, pitch) para Edge-TTS:
+    - Marianas / Santas / Novenas Marianas: pt-BR-FranciscaNeural (suave e solene, rate=-4%, pitch=-1Hz)
+    - Evangelho do Dia / Salmos / Grandes Orações: pt-BR-AntonioNeural (solene e profundo, rate=-5%, pitch=-2Hz)
+    - Santo do Dia (narrativa biográfica e testemunho): pt-BR-AntonioNeural (envolvente, rate=-2%, pitch=-1Hz)
+    - Padrão geral: pt-BR-AntonioNeural (rate=0%, pitch=0Hz)
+    """
+    comb = f"{source} {reference} {text}".lower()
+    is_marian = any(k in comb for k in ("maria", "senhora", "nossa senhora", "aparecida", "fátima", "fatima", "madonna", "rosário", "rosario"))
+    is_female_saint = any(k in comb for k in ("santa ", "beata ", "madre ", "teresa", "rita", "dulce", "clara", "monica", "mônica", "irmã"))
+
+    if is_marian or is_female_saint:
+        return "pt-BR-FranciscaNeural", "-4%", "-1Hz"
+
+    if source in ("gospel", "evangelho") or "evangelho" in comb:
+        return "pt-BR-AntonioNeural", "-5%", "-2Hz"
+
+    if source in ("prayer", "psalm", "novena") or any(k in comb for k in ("salmo", "oração", "oracao", "novena")):
+        return "pt-BR-AntonioNeural", "-5%", "-2Hz"
+
+    if source in ("saint", "santo") or "santo do dia" in comb:
+        return "pt-BR-AntonioNeural", "-2%", "-1Hz"
+
+    return DEFAULT_VOICE, "+0%", "+0Hz"
+
+
 ABBREVIATIONS = {
     "gn": "Gênesis", "gen": "Gênesis", "ex": "Êxodo", "êx": "Êxodo", "lv": "Levítico", "nm": "Números",
     "dt": "Deuteronômio", "js": "Josué", "jz": "Juízes", "rt": "Rute",
@@ -293,7 +320,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 async def _async_generate_speech(
     text: str,
     output_path: Path,
-    voice: str
+    voice: str,
+    rate: str = "+0%",
+    pitch: str = "+0Hz"
 ) -> tuple[bool, list[tuple[float, float, str]]]:
     voices_to_try = [voice]
     alt_voice = "pt-BR-FranciscaNeural" if voice != "pt-BR-FranciscaNeural" else "pt-BR-AntonioNeural"
@@ -306,7 +335,7 @@ async def _async_generate_speech(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     for v in voices_to_try:
         try:
-            communicate = edge_tts.Communicate(clean, v)
+            communicate = edge_tts.Communicate(clean, v, rate=rate, pitch=pitch)
             audio = bytearray()
             sentences: list[tuple[float, float, str]] = []
             async for chunk in communicate.stream():
@@ -329,12 +358,14 @@ async def _async_generate_speech(
 def _generate_narration_segment(
     text: str,
     output_path: Path,
-    voice: str = DEFAULT_VOICE
+    voice: str = DEFAULT_VOICE,
+    rate: str = "+0%",
+    pitch: str = "+0Hz"
 ) -> tuple[Path | None, list[tuple[float, float, str]]]:
     """Gera áudio e metadados de sincronia para um segmento via Edge-TTS com fallback para gTTS."""
     # 1. Tenta Edge-TTS (Vozes Neurais com marcação de tempo)
     try:
-        success, sentences = asyncio.run(_async_generate_speech(text, output_path, voice))
+        success, sentences = asyncio.run(_async_generate_speech(text, output_path, voice, rate=rate, pitch=pitch))
         if success and output_path.is_file() and output_path.stat().st_size > 500:
             log.info(f"Narração neural Edge-TTS gerada com sucesso: {output_path.name}")
             return output_path, sentences
@@ -382,14 +413,16 @@ def generate_narration(
     text: str,
     output_path: Path,
     voice: str = DEFAULT_VOICE,
-    ass_output_path: Path | None = None
+    ass_output_path: Path | None = None,
+    rate: str = "+0%",
+    pitch: str = "+0Hz"
 ) -> Path | None:
     """
     Gera áudio da narração sincronizado e opcionalmente exporta arquivo de legendas ASS.
     Suporta marcadores solenes de pausa [PAUSE:segundos] intercalando silêncio acústico via FFmpeg.
     """
     if "[PAUSE" not in text:
-        audio_res, sentences = _generate_narration_segment(text, output_path, voice)
+        audio_res, sentences = _generate_narration_segment(text, output_path, voice, rate=rate, pitch=pitch)
         if audio_res and ass_output_path and sentences:
             build_ass_file(sentences, ass_output_path)
         return audio_res
@@ -418,7 +451,7 @@ def generate_narration(
             if not seg:
                 continue
             seg_path = output_path.parent / f"temp_seg_{output_path.stem}_{s_idx}.mp3"
-            res_path, seg_sentences = _generate_narration_segment(seg, seg_path, voice)
+            res_path, seg_sentences = _generate_narration_segment(seg, seg_path, voice, rate=rate, pitch=pitch)
             if not res_path or not seg_path.is_file():
                 log.warning(f"Falha ao gerar segmento {s_idx} da narração.")
                 continue
@@ -471,7 +504,7 @@ def generate_narration(
         else:
             log.error(f"Erro ao concatenar segmentos com pausa no FFmpeg ({res_ff.stderr[:200]}). Usando fallback linear.")
             clean_text = re.sub(r"\[PAUSE(?::[\d.]+)?\]", ". ", text)
-            linear_res, linear_s = _generate_narration_segment(clean_text, output_path, voice)
+            linear_res, linear_s = _generate_narration_segment(clean_text, output_path, voice, rate=rate, pitch=pitch)
             if linear_res and ass_output_path and linear_s:
                 build_ass_file(linear_s, ass_output_path)
             return linear_res
@@ -487,10 +520,12 @@ def generate_narration_with_subtitles(
     text: str,
     output_audio_path: Path,
     output_ass_path: Path,
-    voice: str = DEFAULT_VOICE
+    voice: str = DEFAULT_VOICE,
+    rate: str = "+0%",
+    pitch: str = "+0Hz"
 ) -> tuple[Path | None, Path | None]:
     """Gera áudio neural e arquivo de legendas ASS karaoke sincronizadas."""
-    audio_res = generate_narration(text, output_audio_path, voice=voice, ass_output_path=output_ass_path)
+    audio_res = generate_narration(text, output_audio_path, voice=voice, ass_output_path=output_ass_path, rate=rate, pitch=pitch)
     ass_res = output_ass_path if (output_ass_path and output_ass_path.is_file()) else None
     return audio_res, ass_res
 

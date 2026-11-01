@@ -1,11 +1,15 @@
 """
 src/collector/backgrounds.py
 ----------------------------
-Localizador e gerador de imagens de fundo temáticas para versículos e citações.
-- Utiliza o visual_prompt cinematográfico gerado pela IA (Gemini/Groq)
-- Faz busca/geração de alta resolução (1080x1920) temática sem marcas d'água
+Localizador e gerador de imagens de fundo temáticas para versículos, evangelho, salmos e orações.
+- Cascata Resiliente de Geração / Obtenção 9:16 (1080x1920):
+  1º Cloudflare Workers AI (@cf/black-forest-labs/flux-1-schnell nativo 9:16)
+  2º Hugging Face Serverless API (black-forest-labs/FLUX.1-schnell)
+  3º Pollinations.ai (FLUX 1080x1920 gratuito)
+  4º Wikimedia Commons Sacred Art (Domínio Público clássico: Caravaggio, Doré, Rembrandt, Rafael)
+  5º Pexels / Pixabay API (Fotos verticais 9:16 de santuários, velas, vitrais e natureza)
+  6º Unsplash Fallback (Acervo fotográfico sacro curado em alta resolução)
 - Mantém cache local em data/backgrounds/cache para velocidade instantânea
-- Fornece fallbacks temáticos de acordo com o tom (manhã/tarde/noite/salmo)
 """
 from __future__ import annotations
 
@@ -20,6 +24,8 @@ from config.settings import (
     CLOUDFLARE_ACCOUNT_ID,
     CLOUDFLARE_API_TOKEN,
     HUGGINGFACE_API_TOKEN,
+    PEXELS_API_KEY,
+    PIXABAY_API_KEY,
 )
 from src.utils.logger import get_logger
 
@@ -49,6 +55,8 @@ def _try_generate_cloudflare_flux(prompt: str, cached_file: Path) -> Path | None
     payload = {
         "prompt": prompt[:2048],
         "steps": 4,
+        "width": 768,
+        "height": 1344,
     }
 
     try:
@@ -59,7 +67,7 @@ def _try_generate_cloudflare_flux(prompt: str, cached_file: Path) -> Path | None
                 img_bytes = base64.b64decode(data["result"]["image"])
                 if len(img_bytes) > 10000:
                     cached_file.write_bytes(img_bytes)
-                    log.info(f"Fundo temático gerado com sucesso via Cloudflare Workers AI (FLUX.1): {cached_file.name}")
+                    log.info(f"Fundo temático gerado com sucesso via Cloudflare Workers AI (FLUX.1 9:16): {cached_file.name}")
                     return cached_file
             else:
                 log.warning(f"Cloudflare Workers AI erro: {data.get('errors')}")
@@ -119,8 +127,95 @@ def _try_generate_pollinations_flux(prompt: str, cached_file: Path) -> Path | No
     return None
 
 
+def _try_fetch_wikimedia_sacred_art(clean_prompt: str, reference: str, cached_file: Path) -> Path | None:
+    """4ª Opção: Wikimedia Commons Sacred Art (Domínio público: pinturas bíblicas clássicas)."""
+    try:
+        terms = []
+        low = f"{clean_prompt} {reference}".lower()
+        if "maria" in low or "senhora" in low or "madonna" in low:
+            terms.append("Madonna painting")
+        elif "jesus" in low or "cristo" in low or "evangelho" in low:
+            terms.append("Jesus Christ painting")
+        elif "anjo" in low or "arcanjo" in low or "miguel" in low:
+            terms.append("Archangel Michael painting")
+        elif "salmo" in low or "oracao" in low or "oração" in low:
+            terms.append("Biblical prayer painting")
+        else:
+            terms.append("Caravaggio sacred painting")
+
+        search_query = terms[0]
+        url = (
+            "https://commons.wikimedia.org/w/api.php?action=query&generator=search"
+            f"&gsrnamespace=6&gsrsearch={quote('filetype:bitmap ' + search_query)}"
+            "&gsrlimit=5&prop=imageinfo&iiprop=url|size&format=json"
+        )
+        resp = requests.get(url, headers={"User-Agent": "BibleReelsBot/1.0"}, timeout=12)
+        if resp.status_code == 200:
+            pages = resp.json().get("query", {}).get("pages", {})
+            for page in pages.values():
+                info = page.get("imageinfo", [{}])[0]
+                img_url = info.get("url")
+                width = info.get("width", 0)
+                height = info.get("height", 0)
+                if img_url and (height >= 800 or width >= 800) and not img_url.lower().endswith(".svg"):
+                    img_resp = requests.get(img_url, headers={"User-Agent": "BibleReelsBot/1.0"}, timeout=15)
+                    if img_resp.status_code == 200 and len(img_resp.content) > 20000:
+                        cached_file.write_bytes(img_resp.content)
+                        log.info(f"Arte Sacra obtida via Wikimedia Commons: {cached_file.name}")
+                        return cached_file
+    except Exception as exc:
+        log.warning(f"Wikimedia Commons fallback falhou: {exc}")
+
+    return None
+
+
+def _try_fetch_stock_vertical(clean_prompt: str, reference: str, cached_file: Path) -> Path | None:
+    """5ª Opção: Pexels / Pixabay API para imagens verticais de alta resolução."""
+    # A. Pexels API
+    if PEXELS_API_KEY:
+        try:
+            query = "church candle stained glass sanctuary cross"
+            url = f"https://api.pexels.com/v1/search?query={quote(query)}&orientation=portrait&per_page=10"
+            resp = requests.get(url, headers={"Authorization": PEXELS_API_KEY}, timeout=12)
+            if resp.status_code == 200:
+                photos = resp.json().get("photos", [])
+                if photos:
+                    pick = photos[int(hashlib.md5(reference.encode()).hexdigest(), 16) % len(photos)]
+                    img_url = pick.get("src", {}).get("large2x") or pick.get("src", {}).get("portrait")
+                    if img_url:
+                        dl = requests.get(img_url, timeout=15)
+                        if dl.status_code == 200 and len(dl.content) > 20000:
+                            cached_file.write_bytes(dl.content)
+                            log.info(f"Fundo temático vertical obtido via Pexels API: {cached_file.name}")
+                            return cached_file
+        except Exception as exc:
+            log.warning(f"Pexels API falhou: {exc}")
+
+    # B. Pixabay API
+    if PIXABAY_API_KEY:
+        try:
+            query = "church sanctuary stained glass prayer"
+            url = f"https://pixabay.com/api/?key={PIXABAY_API_KEY}&q={quote(query)}&image_type=photo&orientation=vertical&per_page=10"
+            resp = requests.get(url, timeout=12)
+            if resp.status_code == 200:
+                hits = resp.json().get("hits", [])
+                if hits:
+                    pick = hits[int(hashlib.md5(reference.encode()).hexdigest(), 16) % len(hits)]
+                    img_url = pick.get("largeImageURL")
+                    if img_url:
+                        dl = requests.get(img_url, timeout=15)
+                        if dl.status_code == 200 and len(dl.content) > 20000:
+                            cached_file.write_bytes(dl.content)
+                            log.info(f"Fundo temático vertical obtido via Pixabay API: {cached_file.name}")
+                            return cached_file
+        except Exception as exc:
+            log.warning(f"Pixabay API falhou: {exc}")
+
+    return None
+
+
 def _try_fetch_unsplash_fallback(clean_prompt: str, reference: str, cached_file: Path) -> Path | None:
-    """4ª Opção: Acervo curado Unsplash de alta resolução para redundância total."""
+    """6ª Opção: Acervo curado Unsplash de alta resolução para redundância total."""
     try:
         fallbacks = [
             # Arte Sacra & Atmosfera Litúrgica (Velas, Vitrais, Catedral)
@@ -158,17 +253,19 @@ def get_thematic_background(
     theme: str = "general"
 ) -> Path | None:
     """
-    Obtém uma imagem de fundo 9:16 (1080x1920) em cascata resiliente:
-    1º: Cloudflare Workers AI (FLUX.1 Schnell)
+    Obtém uma imagem de fundo 9:16 (1080x1920) em cascata resiliente de 6 etapas:
+    1º: Cloudflare Workers AI (FLUX.1 Schnell nativo 9:16)
     2º: Hugging Face Serverless (FLUX.1 Schnell)
     3º: Pollinations.ai (FLUX)
-    4º: Unsplash (Fallback fotográfico curado)
+    4º: Wikimedia Commons Sacred Art (Domínio público)
+    5º: Pexels / Pixabay API (Stock vertical gratuito)
+    6º: Unsplash (Fallback fotográfico curado)
     """
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     clean_prompt = (visual_prompt or "").strip()
     if not clean_prompt:
-        clean_prompt = f"Serene cinematic nature landscape, peaceful celestial sunlight, holy divine atmosphere, inspiring {reference}"
+        clean_prompt = f"Serene cinematic sacred landscape, peaceful celestial sunlight, holy divine atmosphere, inspiring {reference}"
 
     p_hash = _prompt_hash(clean_prompt)
     cached_file = CACHE_DIR / f"bg_{p_hash}.jpg"
@@ -176,7 +273,7 @@ def get_thematic_background(
         return cached_file
 
     full_prompt = (
-        f"{clean_prompt}, vertical 9:16 aspect ratio, cinematic lighting, 8k photo, "
+        f"{clean_prompt}, vertical 9:16 aspect ratio, cinematic sacred lighting, 8k photo, "
         f"serene peaceful atmosphere, masterpiece, no text, no words, no watermark"
     )
 
@@ -197,5 +294,15 @@ def get_thematic_background(
     if bg:
         return bg
 
-    # 4. Fallback Unsplash
+    # 4. Wikimedia Commons Sacred Art
+    bg = _try_fetch_wikimedia_sacred_art(clean_prompt, reference, cached_file)
+    if bg:
+        return bg
+
+    # 5. Pexels / Pixabay API
+    bg = _try_fetch_stock_vertical(clean_prompt, reference, cached_file)
+    if bg:
+        return bg
+
+    # 6. Fallback Unsplash
     return _try_fetch_unsplash_fallback(clean_prompt, reference, cached_file)

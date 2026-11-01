@@ -59,10 +59,12 @@ BUFFER_GATEWAY_URL: str = os.getenv('BUFFER_GATEWAY_URL', 'http://localhost:8090
 BUFFER_GATEWAY_API_KEY: str = os.getenv('BUFFER_GATEWAY_API_KEY', 'gateway_secret_token_123')
 BUFFER_GATEWAY_PROFILE: str = os.getenv('BUFFER_GATEWAY_PROFILE', 'bible-reels')
 
-# Provedores de Imagem FLUX (Cascata: Cloudflare -> HuggingFace -> Pollinations -> Unsplash)
+# Provedores de Imagem FLUX (Cascata: Cloudflare -> HuggingFace -> Pollinations -> Wikimedia/Pexels -> Unsplash)
 CLOUDFLARE_ACCOUNT_ID: str = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
 CLOUDFLARE_API_TOKEN: str = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
 HUGGINGFACE_API_TOKEN: str = os.getenv("HUGGINGFACE_API_TOKEN", os.getenv("HF_TOKEN", "")).strip()
+PEXELS_API_KEY: str = os.getenv("PEXELS_API_KEY", "").strip()
+PIXABAY_API_KEY: str = os.getenv("PIXABAY_API_KEY", "").strip()
 
 ENABLE_CAROUSEL: bool = os.getenv("ENABLE_CAROUSEL", "false").lower() in ("true", "1", "yes")
 

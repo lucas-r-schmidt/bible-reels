@@ -436,3 +436,59 @@ def generate_saint_video_scenes(
 
     log.info(f"Cenas de vídeo do Santo geradas com sucesso: {len(scenes)} quadros em {video_scenes_dir.name}")
     return scenes
+
+def generate_multi_scene_video_frames(
+    post_id: int,
+    reference: str,
+    badge_text: str,
+    hook_title: str,
+    bg_images: list[Path],
+    output_dir: Path | None = None
+) -> list[Path]:
+    """
+    Gera conjunto de quadros verticais limpos (1080x1920) para montagem de video multi-cena dinamico:
+    - Preserva o centro optico (Y=700 a 1250) limpo para legendas dinamicas Karaoke (.ass).
+    - Cena 1: Abertura com Badge decorativo + Hook Title impactante.
+    - Cenas intermediarias (2..N-1): Foco na transicao visual imersiva (sem poluicao textual).
+    - Cena final: Citação solene da referência canonica + CTA da comunidade.
+    """
+    valid_images = [Path(p) for p in bg_images if p and Path(p).is_file()]
+    if not output_dir:
+        from config.settings import ROOT_DIR
+        output_dir = ROOT_DIR / "output" / "images" / f"multi_scenes_{post_id:04d}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if not valid_images:
+        single = generate_video_frame(
+            post_id=post_id,
+            reference=reference,
+            badge_text=badge_text,
+            hook_title=hook_title,
+            output_path=output_dir / "vscene_01.png"
+        )
+        return [single]
+
+    scenes: list[Path] = []
+    total = len(valid_images)
+    for idx, img_p in enumerate(valid_images, start=1):
+        sc_path = output_dir / f"vscene_{idx:02d}.png"
+        is_first = (idx == 1)
+        is_last = (idx == total)
+
+        frame = generate_video_frame(
+            post_id=post_id,
+            reference=reference,
+            badge_text=badge_text if is_first else None,
+            hook_title=hook_title if is_first else None,
+            bg_image_path=img_p,
+            output_path=sc_path,
+            show_badge=is_first,
+            show_hook=is_first,
+            show_reference=is_last or (total == 1),
+            show_watermark=True
+        )
+        scenes.append(frame)
+
+    log.info(f"Multi-cenas verticais geradas com sucesso: {len(scenes)} quadros em {output_dir.name}")
+    return scenes
+
