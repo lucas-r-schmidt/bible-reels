@@ -23,8 +23,7 @@ from pathlib import Path
 
 from config.settings import DB_PATH, POSTS_PER_RUN, DEFAULT_PUBLISHER, OUTPUT_IMAGES, OUTPUT_VIDEOS
 from config.posting_schedule import (
-    MORNING, SAINT_CAROUSEL, GOSPEL_CAROUSEL, MIDDAY, NOVENA,
-    EVENING, EVENING_CAROUSEL, SAINT_VIDEO, ANALYTICS, DAILY_JOBS,
+    MORNING, MIDDAY, EVENING, ANALYTICS, DAILY_JOBS,
 )
 from src.collector.bible_api import collect_verses
 from src.collector.local_quotes import collect_quotes, collect_classic_prayers
