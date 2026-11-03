@@ -1,23 +1,19 @@
-"""Fonte única dos horários operacionais do scheduler."""
+"""Fonte única dos horários operacionais do scheduler.
+Grade otimizada de alta conversão: 3 horários com espaçamento saudável (5h30 - 6h):
+  - 06:30: Evangelho do Dia (Vídeo 9:16)
+  - 12:00: Santo do Dia Oficial (Vídeo 9:16)
+  - 18:00: Salmo Responsorial ou Grande Oração de Proteção (Vídeo 9:16)
+  - 23:15: Analytics & Sincronização de Métricas
+"""
 
 MORNING = "06:30"
-SAINT_CAROUSEL = "08:30"
-GOSPEL_CAROUSEL = "10:00"
 MIDDAY = "12:00"
-NOVENA = "15:00"
 EVENING = "18:00"
-EVENING_CAROUSEL = "19:15"
-SAINT_VIDEO = "20:30"
 ANALYTICS = "23:15"
 
 DAILY_JOBS = (
-    (MORNING, "devocional ou evangelho matinal"),
-    (SAINT_CAROUSEL, "carrossel do santo do dia"),
-    (GOSPEL_CAROUSEL, "carrossel do evangelho"),
-    (MIDDAY, "palavra bíblica do meio-dia"),
-    (NOVENA, "novena ativa"),
-    (EVENING, "salmo ou oração clássica"),
-    (EVENING_CAROUSEL, "carrossel complementar de oração ou salmo"),
-    (SAINT_VIDEO, "vídeo do santo da véspera"),
+    (MORNING, "evangelho do dia matinal"),
+    (MIDDAY, "santo do dia oficial"),
+    (EVENING, "salmo ou oração de proteção"),
     (ANALYTICS, "sincronização de métricas"),
 )

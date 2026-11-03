@@ -1211,17 +1211,13 @@ def main() -> None:
     if args.daemon:
         import schedule
         daily_count = 1 if args.count == POSTS_PER_RUN else args.count
-        log.info("Iniciando modo Daemon com agendamento completo de 8 horários diários (4 Vídeos + 3 Carrosséis Instagram/TikTok Photo Mode + 1 Novena):")
-        log.info(f"  🌅 06:30 -> Vídeo 9:16: Devocional Matinal & Evangelho do Dia (Reels, TikTok, YouTube)")
-        log.info(f"  🕊️ 08:30 -> Carrossel: Santo do Dia (Instagram Feed 4:5 + TikTok Photo Mode 9:16)")
-        log.info(f"  📖 10:00 -> Carrossel: Evangelho do Dia (Instagram Feed 4:5 + TikTok Photo Mode 9:16)")
-        log.info(f"  ☀️ 12:00 -> Vídeo 9:16: Palavra de Fé & Sabedoria (Reels, TikTok, YouTube)")
-        log.info(f"  🔥 15:00 -> Vídeo / Post: Novena Litúrgica ativa (somente se houver novena)")
-        log.info(f"  🌙 18:00 -> Vídeo 9:16: Salmo ou Oração de Proteção (Reels, TikTok, YouTube)")
-        log.info(f"  🙏 19:15 -> Carrossel: Oração / Salmo das 18h (Instagram Feed 4:5 + TikTok Photo Mode 9:16)")
-        log.info(f"  ✨ 20:30 -> Vídeo 9:16: Santo do Dia da Véspera (Reels, TikTok, YouTube)")
+        log.info("Iniciando modo Daemon com grade de alta conversão (3 Vídeos por dia + Analytics Noturno):")
+        log.info(f"  🌅 06:30 -> Vídeo 9:16: Evangelho do Dia (Reels, TikTok, YouTube)")
+        log.info(f"  🕊️ 12:00 -> Vídeo 9:16: Santo do Dia Oficial (Reels, TikTok, YouTube)")
+        log.info(f"  🌙 18:00 -> Vídeo 9:16: Salmo Responsorial ou Oração de Proteção (Reels, TikTok, YouTube)")
+        log.info(f"  📊 23:15 -> Sincronização de Métricas & Analytics")
 
-        # Agendamento das 06:30 (Matinal: Domingo = Bênção da Semana, Segunda a Sábado = Evangelho do Dia)
+        # 1. Agendamento das 06:30 (Manhã: Evangelho do Dia)
         def _morning_job():
             is_sunday = (datetime.now().weekday() == 6)
             if is_sunday:
@@ -1233,43 +1229,19 @@ def main() -> None:
 
         schedule.every().day.at(MORNING).do(_morning_job)
 
-        # Agendamento das 08:30 (Carrossel 4:5 no Feed do Instagram: Santo do Dia)
-        def _morning_saint_carousel_job():
-            log.info("🕊️ [08:30] Publicando Carrossel 4:5 do Santo do Dia no feed do Instagram...")
-            run_carousel_pipeline(source="saint", publisher=args.publisher)
+        # 2. Agendamento das 12:00 (Meio-dia: Santo do Dia Oficial)
+        def _midday_saint_job():
+            log.info("🕊️ [12:00] Publicando Santo do Dia oficial (Vídeo 9:16)...")
+            run_saint_pipeline(
+                target_date=date.today(),
+                publisher=args.publisher,
+                make_video=make_video_eff,
+                dispatch=True
+            )
 
-        schedule.every().day.at(SAINT_CAROUSEL).do(_morning_saint_carousel_job)
+        schedule.every().day.at(MIDDAY).do(_midday_saint_job)
 
-        # Agendamento das 10:00 (Carrossel 4:5 no Feed do Instagram: Aprofundamento do Evangelho)
-        def _morning_gospel_carousel_job():
-            log.info("📖 [10:00] Publicando Carrossel 4:5 do Evangelho do Dia no feed do Instagram...")
-            run_carousel_pipeline(source="gospel", publisher=args.publisher)
-
-        schedule.every().day.at(GOSPEL_CAROUSEL).do(_morning_gospel_carousel_job)
-
-        # Agendamento das 12:00 (Meio-dia: Palavra de Fé & Sabedoria Bíblica)
-        schedule.every().day.at(MIDDAY).do(
-            run_pipeline,
-            source="bible",
-            count=daily_count,
-            make_video=make_video_eff,
-            publisher=args.publisher,
-            dispatch_limit=daily_count,
-            theme="midday"
-        )
-
-        # Agendamento das 15:00 (Novena Litúrgica Ativa: Vídeo / Post)
-        def _novena_job():
-            nov = check_active_novena(date.today())
-            if nov:
-                log.info(f"🔥 [15:00] Novena ativa detectada: {nov['saint_name']} - {nov['novena_day']}º Dia")
-                run_novena_pipeline(publisher=args.publisher, make_video=make_video_eff, dispatch=True)
-            else:
-                log.info("🕊️ [15:00] Nenhuma novena litúrgica ativa para hoje.")
-
-        schedule.every().day.at(NOVENA).do(_novena_job)
-
-        # Agendamento das 18:00 (Noturno: Oração Clássica / Salmo de Proteção e Paz)
+        # 3. Agendamento das 18:00 (Noite: Oração de Proteção ou Salmo do Dia)
         def _evening_prayer_job():
             is_even = (datetime.now().day % 2 == 0)
             if is_even:
@@ -1280,29 +1252,6 @@ def main() -> None:
                 run_prayer_pipeline(source="prayer", publisher=args.publisher, make_video=make_video_eff, dispatch=True)
 
         schedule.every().day.at(EVENING).do(_evening_prayer_job)
-
-        # Agendamento das 19:15 (Carrossel no Feed: Oração / Salmo independente das 18h)
-        def _evening_carousel_job():
-            is_even = (datetime.now().day % 2 == 0)
-            # Alterna fonte para nunca repetir o tema das 18h (se 18h foi Oração, 19:15 é Salmo; se 18h foi Salmo, 19:15 é Oração)
-            alt_source = "prayer" if is_even else "psalm"
-            log.info(f"🙏 [19:15] Publicando Carrossel independente ({alt_source}) no feed...")
-            run_carousel_pipeline(source=alt_source, publisher=args.publisher)
-
-        schedule.every().day.at(EVENING_CAROUSEL).do(_evening_carousel_job)
-
-        # Agendamento das 20:30 (Véspera: Santo do Dia seguinte)
-        def _saint_eve_job():
-            tomorrow = date.today() + timedelta(days=1)
-            log.info(f"✨ [20:30] Gerando e publicando Santo do Dia da véspera ({tomorrow.strftime('%d/%m')})...")
-            run_saint_pipeline(
-                target_date=tomorrow,
-                publisher=args.publisher,
-                make_video=make_video_eff,
-                dispatch=True
-            )
-
-        schedule.every().day.at(SAINT_VIDEO).do(_saint_eve_job)
 
         # Agendamento das 23:15 (Loop de Métricas & Analytics Noturno)
         def _analytics_job():
