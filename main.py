@@ -979,8 +979,8 @@ def check_and_catchup_missed_post(
 ) -> None:
     """
     Auto-recuperação pós-reinicialização / queda do daemon:
-    Verifica se o post agendado para o período atual (manhã ou noite) já foi enviado hoje.
-    Se não foi enviado e o horário já passou, executa o pipeline imediatamente.
+    Verifica as 3 janelas oficiais do dia (06:30, 12:00 e 18:00).
+    Se o horário já passou e o post da janela ainda não foi enviado hoje, executa o catch-up.
     """
     now = datetime.now().astimezone()
     today = now.date()
@@ -988,137 +988,58 @@ def check_and_catchup_missed_post(
     morning_start = datetime.combine(today, dtime.fromisoformat(MORNING)).astimezone()
     morning_end = datetime.combine(today, dtime(11, 59, 59)).astimezone()
 
-    afternoon_start = datetime.combine(today, dtime.fromisoformat(MIDDAY)).astimezone()
-    afternoon_end = datetime.combine(today, dtime(14, 59, 59)).astimezone()
-
-    novena_start = datetime.combine(today, dtime.fromisoformat(NOVENA)).astimezone()
-    novena_end = datetime.combine(today, dtime(17, 59, 59)).astimezone()
+    midday_start = datetime.combine(today, dtime.fromisoformat(MIDDAY)).astimezone()
+    midday_end = datetime.combine(today, dtime(17, 59, 59)).astimezone()
 
     evening_start = datetime.combine(today, dtime.fromisoformat(EVENING)).astimezone()
-    evening_end = datetime.combine(today, dtime(20, 29, 59)).astimezone()
-
-    saint_eve_start = datetime.combine(today, dtime.fromisoformat(SAINT_VIDEO)).astimezone()
-    saint_eve_end = datetime.combine(today, dtime(23, 59, 59)).astimezone()
+    evening_end = datetime.combine(today, dtime(23, 59, 59)).astimezone()
 
     log.info(f"[SELF-HEALING] Verificando se posts do dia foram entregues ({now.strftime('%d/%m/%Y %H:%M:%S')})...")
 
     if now < morning_start:
-        log.info("⏳ Madrugada / início da manhã. Aguardando primeiro agendamento matinal (06:30).")
+        log.info("⏳ Madrugada / início da manhã. Aguardando primeiro agendamento matinal (06:30 - Evangelho do Dia).")
         return
 
+    # Janela 1: 06:30 - Evangelho do Dia
     if morning_start <= now <= morning_end:
         has_morning, post_info = db.has_post_published_between(morning_start, morning_end)
         if has_morning and post_info:
             pub_time = post_info.get("published_at", "")
-            log.info(f"✅ [OK] Post matinal das 06:30 de hoje já foi publicado (Post #{post_info.get('id')} às {pub_time[:19]}).")
+            log.info(f"✅ [OK] Post matinal do Evangelho (06:30) já foi publicado (Post #{post_info.get('id')} às {pub_time[:19]}).")
         else:
-            log.warning("⚠️ [CATCH-UP] Horário matinal (06:30) já passou e NENHUM post foi enviado nesta janela!")
-            log.info("🚀 Executando post de recuperação matinal (Bênção & Devocional) agora...")
+            log.warning("⚠️ [CATCH-UP] Horário do Evangelho (06:30) já passou e não foi enviado!")
+            log.info("🚀 Executando post de recuperação matinal (Evangelho do Dia) agora...")
             try:
                 run_pipeline(
-                    source="bible",
+                    source="gospel",
                     count=daily_count,
                     make_video=make_video,
                     publisher=publisher,
                     dispatch_limit=daily_count,
                     theme="morning",
                 )
-                log.info("✅ Post de recuperação matinal concluído com sucesso!")
+                log.info("✅ Post de recuperação do Evangelho concluído com sucesso!")
             except Exception as exc:
                 log.error(f"❌ Falha ao executar post de recuperação matinal: {exc}")
         return
 
-    if afternoon_start <= now <= afternoon_end:
-        has_midday, post_info = db.has_post_published_between(afternoon_start, afternoon_end)
-        if has_midday and post_info:
-            pub_time = post_info.get("published_at", "")
-            log.info(f"✅ [OK] Post do meio-dia de hoje já foi publicado (Post #{post_info.get('id')} às {pub_time[:19]}).")
-        else:
-            log.warning("⚠️ [CATCH-UP] Horário do meio-dia (12:00) já passou e NENHUM post foi enviado nesta janela!")
-            log.info("🚀 Executando post de recuperação do meio-dia (Palavra de Fé & Sabedoria) agora...")
-            try:
-                run_pipeline(
-                    source="bible",
-                    count=daily_count,
-                    make_video=make_video,
-                    publisher=publisher,
-                    dispatch_limit=daily_count,
-                    theme="midday",
-                )
-                log.info("✅ Post de recuperação do meio-dia concluído com sucesso!")
-            except Exception as exc:
-                log.error(f"❌ Falha ao executar post de recuperação do meio-dia: {exc}")
-        return
-
-    if novena_start <= now <= novena_end:
-        from src.collector.saints import check_active_novena
-        nov = check_active_novena(today)
-        if nov:
-            has_novena, post_info = db.has_post_published_between(novena_start, novena_end, source="novena")
-            if has_novena and post_info:
-                pub_time = post_info.get("published_at", "")
-                log.info(f"✅ [OK] Post da Novena das 15:00 ({nov['saint_name']}) de hoje já foi publicado (Post #{post_info.get('id')} às {pub_time[:19]}).")
-            else:
-                log.warning(f"⚠️ [CATCH-UP] Horário da Novena (15:00 - {nov['saint_name']}) já passou e não foi enviado!")
-                log.info("🚀 Executando post de recuperação da Novena agora...")
-                try:
-                    run_novena_pipeline(publisher=publisher, make_video=make_video, dispatch=True)
-                    log.info("✅ Post de recuperação da Novena concluído com sucesso!")
-                except Exception as exc:
-                    log.error(f"❌ Falha ao executar post de recuperação da Novena: {exc}")
-        else:
-            log.info("ℹ️ Janela das 15:00: Nenhuma novena litúrgica ativa hoje.")
-        return
-
-    if evening_start <= now <= evening_end:
-        has_evening, post_info = db.has_post_published_between(evening_start, evening_end)
-        if has_evening and post_info:
-            pub_time = post_info.get("published_at", "")
-            log.info(f"✅ [OK] Post noturno das 18:00 de hoje já foi publicado (Post #{post_info.get('id')} às {pub_time[:19]}).")
-        else:
-            log.warning("⚠️ [CATCH-UP] Horário noturno (18:00) já passou e NENHUM post foi enviado nesta janela!")
-            log.info("🚀 Executando post de recuperação noturno (Oração & Gratidão) agora...")
-            try:
-                run_pipeline(
-                    source=source,
-                    count=daily_count,
-                    make_video=make_video,
-                    publisher=publisher,
-                    dispatch_limit=daily_count,
-                    theme="evening",
-                )
-                log.info("✅ Post de recuperação noturno concluído com sucesso!")
-            except Exception as exc:
-                log.error(f"❌ Falha ao executar post de recuperação noturno: {exc}")
-        return
-
-    if now >= saint_eve_start:
-        tomorrow = today + timedelta(days=1)
-        from src.collector.saints import get_saint_for_date
-        saint_info = get_saint_for_date(tomorrow)
-        saint_name = saint_info.get("name") if saint_info else None
-
-        has_saint, post_info = db.has_saint_post_for_date(tomorrow, saint_name=saint_name)
+    # Janela 2: 12:00 - Santo do Dia Oficial
+    if midday_start <= now <= midday_end:
+        has_saint, post_info = db.has_post_published_between(midday_start, midday_end, source="saint")
         if not (has_saint and post_info):
-            has_saint, post_info = db.has_post_published_between(saint_eve_start, saint_eve_end, source="saint")
+            from src.collector.saints import get_saint_for_date
+            s_info = get_saint_for_date(today)
+            has_saint, post_info = db.has_saint_post_for_date(today, saint_name=s_info.get("name") if s_info else None)
 
-        is_already_sent = (
-            has_saint and post_info and (
-                post_info.get("status") == "published"
-                or post_info.get("is_sent")
-                or post_info.get("queue_status") == "sent"
-            )
-        )
-
-        if is_already_sent:
+        if has_saint and post_info:
             pub_time = post_info.get("published_at", "") or "enviado"
-            log.info(f"✅ [OK] Post do Santo da véspera ({saint_name or tomorrow.strftime('%d/%m')}) já foi publicado/enviado (Post #{post_info.get('id')} às {pub_time[:19]}).")
+            log.info(f"✅ [OK] Post do Santo do Dia (12:00) de hoje já foi publicado (Post #{post_info.get('id')} às {pub_time[:19]}).")
         else:
-            log.warning(f"⚠️ [CATCH-UP] Horário de véspera do Santo ({tomorrow.strftime('%d/%m')}) já passou e post não foi enviado!")
-            log.info("🚀 Executando post de Santo do Dia (Carrossel & Vídeo) agora...")
+            log.warning("⚠️ [CATCH-UP] Horário do Santo do Dia (12:00) já passou e não foi enviado!")
+            log.info("🚀 Executando post de Santo do Dia (12:00) agora...")
             try:
                 run_saint_pipeline(
-                    target_date=tomorrow,
+                    target_date=today,
                     publisher=publisher,
                     make_video=make_video,
                     dispatch=True
@@ -1128,6 +1049,23 @@ def check_and_catchup_missed_post(
                 log.error(f"❌ Falha ao executar post do Santo do Dia: {exc}")
         return
 
+    # Janela 3: 18:00 - Oração / Salmo Noturno
+    if now >= evening_start:
+        has_evening, post_info = db.has_post_published_between(evening_start, evening_end)
+        if has_evening and post_info:
+            pub_time = post_info.get("published_at", "")
+            log.info(f"✅ [OK] Post noturno das 18:00 de hoje já foi publicado (Post #{post_info.get('id')} às {pub_time[:19]}).")
+        else:
+            log.warning("⚠️ [CATCH-UP] Horário noturno (18:00) já passou e NENHUM post foi enviado nesta janela!")
+            log.info("🚀 Executando post noturno (Oração / Salmo) agora...")
+            try:
+                is_even = (datetime.now().day % 2 == 0)
+                src = "psalm" if is_even else "prayer"
+                run_prayer_pipeline(source=src, publisher=publisher, make_video=make_video, dispatch=True)
+                log.info("✅ Post noturno concluído com sucesso!")
+            except Exception as exc:
+                log.error(f"❌ Falha ao executar post noturno: {exc}")
+        return
 
 
 def run_videoflow_cut(
